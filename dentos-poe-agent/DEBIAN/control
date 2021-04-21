@@ -1,0 +1,10 @@
+Package: dentos-poe-agent
+Version: 0.4.0-alpha
+Architecture: all
+Section: custom
+Priority: optional
+Essential: no
+Installed-Size: 236
+Depends: python3:any (>= 3.0)
+Maintainer: Chenglin.Tsai
+Description: PoE agent for DENT POE switch

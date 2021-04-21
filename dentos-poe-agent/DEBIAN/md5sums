@@ -1,0 +1,15 @@
+a4db026c5732819589add4be40d42cd4  lib/systemd/system/poed.service
+7911cdddd3ae7cf82037d3cabfb48dc2  opt/poeagent/platforms/delta/tn48m-poe-r0/poe_platform.py
+b407402b4081aeec25b5e14b0bbb6d28  opt/poeagent/bin/poecli
+35f48dec8ffd314eb3002b4015ce4bdf  opt/poeagent/bin/poecli.py
+4a00fd20a0c01167bfb6ce08442dff63  opt/poeagent/bin/poed
+67ec8b653d465add791b402eace19633  opt/poeagent/bin/poed.py
+e4bb72cbc5ed56a9a8c87c08403d5430  opt/poeagent/inc/poe_common.py
+a23126abb90d656bbcfa1839da14250e  opt/poeagent/inc/poe_version.py
+ff3692616cd6a68d256fb6b173cb2111  opt/poeagent/drivers/poe_driver_pd69200.py
+e68c5a9acf71db994324cee220f6e24b  opt/poeagent/drivers/poe_driver_pd69200_def.py
+4bbc8f778dc41e76e6440a0671312053  opt/poeagent/lib/smbus2/smbus2.py
+0108b0e0ddd6760c4f187f7906341815  opt/poeagent/lib/smbus2/smbus2.pyi
+d41d8cd98f00b204e9800998ecf8427e  opt/poeagent/lib/smbus2/py.typed
+796e96ece02fc63ed413fc7477c2cee9  opt/poeagent/lib/smbus2/__init__.py
+30a8a2ed14cf1d52fb15859145b300ad  usr/share/doc/dentos-poe-agent/changelog.Debian.gz

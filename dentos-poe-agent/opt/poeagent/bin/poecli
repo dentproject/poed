@@ -1,0 +1,12 @@
+#!/bin/bash
+POE_ROOT=$(dirname $(dirname $(readlink -f $0)))
+BIN_PATH=$POE_ROOT/bin/
+INC_PATH=$POE_ROOT/inc/
+LIB_PATH=$POE_ROOT/lib/
+DRIVERS_PATH=$POE_ROOT/drivers/
+PLATFORMS_PATH=$POE_ROOT/platforms/
+
+export PYTHONPATH=$BIN_PATH:$INC_PATH:$LIB_PATH:$DRIVERS_PATH:$PLATFORMS_PATH
+
+cd $BIN_PATH
+/usr/bin/python3 poecli.py $@

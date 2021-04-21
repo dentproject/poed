@@ -1,0 +1,4 @@
+#!/bin/bash
+
+systemctl --no-block enable poed.service
+systemctl --no-block start poed.service

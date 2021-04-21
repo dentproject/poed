@@ -1,0 +1,2 @@
+POE_AGENT_VERSION  = "0.4.0-alpha"
+POE_CONFIG_VERSION = "1.1.0"
