@@ -1,0 +1,3 @@
+[submodule "smbus2-repo"]
+	path = smbus2-repo
+	url = https://github.com/kplindegaard/smbus2.git

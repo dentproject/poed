@@ -19,6 +19,6 @@ Current Supported POE chip: Microsemi PD69200
 * poed – Run the configuration update routine periodically
 * poe_driver_pd69200 – Provide the APIs for controlling the Mircosemi pd69200
 * tn48m-poe-r0/poe_platform.py – Includes the platform PoE settings and initialization procedure on this platform
-* smbus2 – The third party library used for i2c communications in python.
+* smbus2 – The third party library used for i2c communications in python. (submodule)
 
 ![image](https://github.com/chenglin-tsai/poed/blob/main/poe_folder_architecture.png)

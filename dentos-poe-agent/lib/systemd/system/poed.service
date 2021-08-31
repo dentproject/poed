@@ -1,0 +1,11 @@
+[Unit]
+Description=DentOS POE Agent
+After=syslog.service lldpd.service ntp.service
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/sbin/poed
+
+[Install]
+WantedBy=multi-user.target
