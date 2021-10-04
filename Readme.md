@@ -8,6 +8,7 @@ Current Supported Platform: Delta tn48m-poe
 
 Current Supported POE chip: Microsemi PD69200
 
+License: Apache 2.0
 
 # Software Architeture
 ![image](https://github.com/chenglin-tsai/poed/blob/main/poe_software_architecture.png)
