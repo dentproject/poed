@@ -58,7 +58,10 @@ PM2           = "pm2"
 PM3           = "pm3"
 SW_VERSION    = "sw_version"
 PROD_NUM      = "prod_num"
-
+CPU_STATUS2_ERROR = "cpu_status2_error"
+NVM_USER_BYTE = "nvm_user_byte"
+FOUND_DEVICE = "found_device"
+EVENT_EXIST = "event_exist"
 # POE Configuration Attributes
 GEN_INFO       = "GENERAL_INFORMATION"
 TIMESTAMP      = "TIMESTAMP"

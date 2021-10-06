@@ -140,7 +140,7 @@ class PoeDriver_microsemi_pd69200(object):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_RESOTRE_FACT]
-        self._run_communication_protocol(command, self._msg_delay)
+        self._run_communication_protocol(command, self._restore_factory_default_delay)
 
     def save_system_settings(self):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
@@ -172,6 +172,14 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_SYSTEM_STATUS]
         return self._run_communication_protocol(command, self._msg_delay,
                                                 PoeMsgParser.MSG_SYSTEM_STATUS)
+
+    def get_bt_system_status(self):
+        command = [POE_PD69200_MSG_KEY_REQUEST,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_GLOBAL,
+                   POE_PD69200_BT_MSG_SUB1_SYSTEM_STATUS]
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                    PoeMsgParser.MSG_BT_SYSTEM_STATUS)
 
     def set_individual_mask(self, mask_num, enDis):
         command = [POE_PD69200_MSG_KEY_COMMAND,
@@ -241,6 +249,19 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_DATA_PORT_TYPE_AT]
         self._run_communication_protocol(command, self._msg_delay)
 
+    def set_bt_port_enDis(self, logic_port, EnDis):
+        command = [POE_PD69200_MSG_KEY_COMMAND,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_PARAMETERS,
+                   logic_port,
+                   POE_PD69200_MSG_DATA_CMD_ENDIS_ONLY | EnDis,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_NO_CHANGE | POE_PD69200_BT_MSG_DATA_PORT_CLASS_ERROR_NO_CHANGE,
+                   POE_PD69200_BT_MSG_DATA_PORT_OP_MODE_NO_CHANGE,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
+                   POE_PD69200_BT_MSG_DATA_PORT_PRIORITY_NO_CHANGE]
+        self._run_communication_protocol(command, self._msg_delay)
+
     def get_all_ports_enDis(self):
         command = [POE_PD69200_MSG_KEY_REQUEST,
                    self._calc_msg_echo(),
@@ -279,6 +300,19 @@ class PoeDriver_microsemi_pd69200(object):
                    logic_port,
                    priority]
         self._run_communication_protocol(command, self._msg_delay)
+
+    def set_bt_port_priority(self, logic_port, priority):
+        command = [POE_PD69200_MSG_KEY_COMMAND,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_PARAMETERS,
+                   logic_port,
+                   POE_PD69200_BT_MSG_DATA_CMD_ENDIS_NO_CHAGNE,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_NO_CHANGE | POE_PD69200_BT_MSG_DATA_PORT_CLASS_ERROR_NO_CHANGE,
+                   POE_PD69200_BT_MSG_DATA_PORT_OP_MODE_NO_CHANGE,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
+                   priority]
+        self._run_communication_protocol(command, self._msg_delay)   
 
     def get_port_priority(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -367,6 +401,14 @@ class PoeDriver_microsemi_pd69200(object):
         return self._run_communication_protocol(command, self._msg_delay,
                                                 PoeMsgParser.MSG_PORT_MEASUREMENTS)
 
+    def get_bt_port_measurements(self, logic_port):
+        command = [POE_PD69200_MSG_KEY_REQUEST,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_MEASUREMENT,
+                   logic_port]
+        return self._run_communication_protocol(command, self._msg_delay,
+                                            PoeMsgParser.MSG_BT_PORT_MEASUREMENTS)                      
     def get_poe_device_parameters(self, csnum):
         command = [POE_PD69200_MSG_KEY_REQUEST,
                    self._calc_msg_echo(),
@@ -405,6 +447,37 @@ class PoeDriver_microsemi_pd69200(object):
     def get_system_information(self, more_info=True):
         return poeSystem(self).get_current_status(more_info)
 
+    def get_bt_port_parameters(self, logic_port):
+        command = [POE_PD69200_MSG_KEY_REQUEST,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_PARAMETERS,
+                   logic_port]
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_BT_PORT_PARAMETERS)
+
+    def get_bt_port_class(self, logic_port):
+        command = [POE_PD69200_MSG_KEY_REQUEST,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_CLASS,
+                   logic_port]
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_BT_PORT_CLASS)
+
+    def set_bt_port_operation_mode(self, logic_port, mode):
+        command = [POE_PD69200_MSG_KEY_COMMAND,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_BT_MSG_SUB1_PORTS_PARAMETERS,
+                   logic_port,
+                   POE_PD69200_BT_MSG_DATA_CMD_ENDIS_NO_CHAGNE,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_NO_CHANGE | POE_PD69200_BT_MSG_DATA_PORT_CLASS_ERROR_NO_CHANGE,
+                   mode,
+                   POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
+                   POE_PD69200_BT_MSG_DATA_PORT_PRIORITY_NO_CHANGE]
+        self._run_communication_protocol(command, self._msg_delay)
+
 class PoeMsgParser(object):
     MSG_PORT_POWER_LIMIT = 1
     MSG_PORT_PRIORITY = 2
@@ -417,6 +490,10 @@ class PoeMsgParser(object):
     MSG_INDV_MASK = 9
     MSG_PM_METHOD = 10
     MSG_SW_VERSION = 11
+    MSG_BT_PORT_MEASUREMENTS = 12
+    MSG_BT_PORT_PARAMETERS = 13
+    MSG_BT_SYSTEM_STATUS = 14
+    MSG_BT_PORT_CLASS = 15
 
     def _to_word(self, byteH, byteL):
         return (byteH << 8 | byteL) & 0xffff
@@ -444,6 +521,15 @@ class PoeMsgParser(object):
             CLASS: msg[POE_PD69200_MSG_OFFSET_DATA6],
             PROTOCOL: msg[POE_PD69200_MSG_OFFSET_DATA10],
             EN_4PAIR: msg[POE_PD69200_MSG_OFFSET_DATA11]
+        }
+        return parsed_data
+
+    def _parse_bt_port_status_parameters(self, msg):
+        parsed_data = {
+            STATUS: msg[POE_PD69200_MSG_OFFSET_SUB],
+            ENDIS: msg[POE_PD69200_MSG_OFFSET_SUB1],
+            PROTOCOL: msg[POE_PD69200_MSG_OFFSET_DATA5],
+            PRIORITY: msg[POE_PD69200_MSG_OFFSET_DATA7]
         }
         return parsed_data
 
@@ -489,6 +575,17 @@ class PoeMsgParser(object):
         }
         return parsed_data
 
+    def _parse_bt_port_measurements(self, msg):
+        parsed_data = {
+            CURRENT: self._to_word(msg[POE_PD69200_MSG_OFFSET_SUB2],
+                                   msg[POE_PD69200_MSG_OFFSET_DATA5]),
+            POWER_CONSUMP: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA6],
+                                         msg[POE_PD69200_MSG_OFFSET_DATA7]),
+            VOLTAGE: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA9],
+                                   msg[POE_PD69200_MSG_OFFSET_DATA10])
+        }
+        return parsed_data
+
     def _parse_system_status(self, msg):
         parsed_data = {
             CPU_STATUS1: msg[POE_PD69200_MSG_OFFSET_SUB],
@@ -502,6 +599,17 @@ class PoeMsgParser(object):
             TEMP_ALARM: msg[POE_PD69200_MSG_OFFSET_DATA10],
             INTR_REG: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA11],
                                     msg[POE_PD69200_MSG_OFFSET_DATA12])
+        }
+        return parsed_data
+
+    def _parse_bt_system_status(self, msg):
+        parsed_data = {
+            CPU_STATUS2: msg[POE_PD69200_MSG_OFFSET_SUB1],
+            FAC_DEFAULT: msg[POE_PD69200_MSG_OFFSET_SUB2],
+            PRIV_LABEL: msg[POE_PD69200_MSG_OFFSET_DATA6],
+            NVM_USER_BYTE: msg[POE_PD69200_MSG_OFFSET_DATA7],
+            FOUND_DEVICE: msg[POE_PD69200_MSG_OFFSET_DATA8],
+            EVENT_EXIST: msg[POE_PD69200_MSG_OFFSET_DATA12]
         }
         return parsed_data
 
@@ -536,6 +644,15 @@ class PoeMsgParser(object):
         }
         return parsed_data
 
+    def _parse_bt_port_class(self, msg):
+        parsed_data = {
+            CLASS: msg[POE_PD69200_MSG_OFFSET_DATA8],
+
+            TPPL: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA9],
+                                msg[POE_PD69200_MSG_OFFSET_DATA10])
+        }
+        return parsed_data
+
     def parse(self, msg, msg_type):
         if msg_type == self.MSG_PORT_POWER_LIMIT:
             return self._parse_port_power_limit(msg)
@@ -559,6 +676,14 @@ class PoeMsgParser(object):
             return self._parse_pm_method(msg)
         elif msg_type == self.MSG_SW_VERSION:
             return self._parse_sw_version(msg)
+        elif msg_type == self.MSG_BT_PORT_PARAMETERS:
+            return self._parse_bt_port_status_parameters(msg)
+        elif msg_type == self.MSG_BT_PORT_CLASS:
+            return self._parse_bt_port_class(msg)
+        elif msg_type == self.MSG_BT_SYSTEM_STATUS:
+            return self._parse_bt_system_status(msg)
+        elif msg_type == self.MSG_BT_PORT_MEASUREMENTS:
+            return self._parse_bt_port_measurements(msg)
         return {}
 
 class poePort(object):
@@ -576,70 +701,126 @@ class poePort(object):
         self.power_limit = 0
         self.voltage = 0
         self.current = 0
+        self._4wire_bt = 0
 
     def update_port_status(self):
-        status = self.poe_plat.get_port_status(self.port_id)
-        self.enDis = TBL_ENDIS_TO_CFG[status.get(ENDIS)]
-        self.status = TBL_STATUS_TO_CFG[status.get(STATUS)]
-        self.latch = status.get(LATCH)
-        self.class_type = TBL_CLASS_TO_CFG[status.get(CLASS)]
-        self.protocol = TBL_PROTOCOL_TO_CFG[status.get(PROTOCOL)]
-        self.FPairEn = status.get(EN_4PAIR)
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            params = self.poe_plat.get_bt_port_parameters(self.port_id)
+            self.status = TBL_BT_STATUS_TO_CFG[params.get(STATUS)]
+            self.enDis = TBL_ENDIS_TO_CFG[params.get(ENDIS)]
+            self.protocol = TBL_BT_PROTOCOL_TO_CFG[params.get(PROTOCOL)]
+            self.priority = TBL_PRIORITY_TO_CFG[params.get(PRIORITY)]
 
-        priority = self.poe_plat.get_port_priority(self.port_id)
-        self.priority = TBL_PRIORITY_TO_CFG[priority.get(PRIORITY)]
+            power_limit = self.poe_plat.get_bt_port_class(self.port_id)
+            port_class = (power_limit.get(CLASS) >> 4)
+            self.class_type = TBL_BT_CLASS_TO_CFG[port_class]
+            self.power_limit = power_limit.get(TPPL)
 
-        meas = self.poe_plat.get_port_measurements(self.port_id)
-        self.current = meas.get(CURRENT)
-        self.power_consump = meas.get(POWER_CONSUMP)
-        self.voltage = meas.get(VOLTAGE)
+            meas = self.poe_plat.get_bt_port_measurements(self.port_id)
+            self.current = meas.get(CURRENT)
+            self.power_consump = meas.get(POWER_CONSUMP)
+            self.voltage = meas.get(VOLTAGE)
+        else:
+            status = self.poe_plat.get_port_status(self.port_id)
+            self.enDis = TBL_ENDIS_TO_CFG[status.get(ENDIS)]
+            self.status = TBL_STATUS_TO_CFG[status.get(STATUS)]
+            self.latch = status.get(LATCH)
+            self.class_type = TBL_CLASS_TO_CFG[status.get(CLASS)]
+            self.protocol = TBL_PROTOCOL_TO_CFG[status.get(PROTOCOL)]
+            self.FPairEn = status.get(EN_4PAIR)
 
-        power_limit = self.poe_plat.get_port_power_limit(self.port_id)
-        self.power_limit = power_limit.get(PPL)
+            priority = self.poe_plat.get_port_priority(self.port_id)
+            self.priority = TBL_PRIORITY_TO_CFG[priority.get(PRIORITY)]
+
+            power_limit = self.poe_plat.get_port_power_limit(self.port_id)
+            self.power_limit = power_limit.get(PPL)
+
+            meas = self.poe_plat.get_port_measurements(self.port_id)
+            self.current = meas.get(CURRENT)
+            self.power_consump = meas.get(POWER_CONSUMP)
+            self.voltage = meas.get(VOLTAGE)
 
     def get_current_status(self, more_info=True):
         self.update_port_status()
         port_status = OrderedDict()
-        port_status[PORT_ID] = self.port_id + 1
-        port_status[ENDIS] = self.enDis
-        port_status[PRIORITY] = self.priority
-        port_status[POWER_LIMIT] = self.power_limit
-        if more_info == True:
-            port_status[STATUS] = self.status
-            port_status[LATCH] = self.latch
-            port_status[PROTOCOL] = self.protocol
-            port_status[EN_4PAIR] = self.FPairEn
-            port_status[CLASS] = self.class_type
-            port_status[POWER_CONSUMP] = self.power_consump
-            port_status[VOLTAGE] = self.voltage / 10
-            port_status[CURRENT] = self.current
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            port_status[PORT_ID] = self.port_id + 1
+            port_status[ENDIS] = self.enDis
+            port_status[PRIORITY] = self.priority
+            port_status[POWER_LIMIT] = self.power_limit * 100
+            if more_info == True:
+                port_status[STATUS] = self.status
+                port_status[PROTOCOL] = self.protocol
+                port_status[LATCH] = self.latch
+                port_status[EN_4PAIR] = self.FPairEn
+                port_status[CLASS] = self.class_type
+                port_status[POWER_CONSUMP] = self.power_consump * 100
+                port_status[VOLTAGE] = self.voltage / 10
+                port_status[CURRENT] = self.current
+        else:
+            port_status[PORT_ID] = self.port_id + 1
+            port_status[ENDIS] = self.enDis
+            port_status[PRIORITY] = self.priority
+            port_status[POWER_LIMIT] = self.power_limit
+            if more_info == True:
+                port_status[STATUS] = self.status
+                port_status[LATCH] = self.latch
+                port_status[PROTOCOL] = self.protocol
+                port_status[EN_4PAIR] = self.FPairEn
+                port_status[CLASS] = self.class_type
+                port_status[POWER_CONSUMP] = self.power_consump
+                port_status[VOLTAGE] = self.voltage / 10
+                port_status[CURRENT] = self.current
+
         return port_status
 
     def set_enDis(self, set_val):
         set_flag = False
-        status = self.poe_plat.get_port_status(self.port_id)
-        cur_val = status.get(ENDIS)
-        if cur_val != set_val:
-            self.poe_plat.set_port_enDis(self.port_id, set_val)
-            set_flag = True
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            status = self.poe_plat.get_bt_port_parameters(self.port_id)
+            cur_val = status.get(ENDIS)
+            if cur_val != set_val:
+                self.poe_plat.set_bt_port_enDis(self.port_id, set_val)
+                set_flag = True
+        else:
+            status = self.poe_plat.get_port_status(self.port_id)
+            cur_val = status.get(ENDIS)
+            if cur_val != set_val:
+                self.poe_plat.set_port_enDis(self.port_id, set_val)
+                set_flag = True
         return set_flag
 
     def set_powerLimit(self, set_val):
         set_flag = False
-        power_limit = self.poe_plat.get_port_power_limit(self.port_id)
-        cur_val = power_limit.get(PPL)
-        if cur_val != set_val:
-            self.poe_plat.set_port_power_limit(self.port_id, set_val)
-            set_flag = True
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            print(" Not support on BT firmware")
+        else:
+            power_limit = self.poe_plat.get_port_power_limit(self.port_id)
+            cur_val = power_limit.get(PPL)
+            if cur_val != set_val:
+                self.poe_plat.set_port_power_limit(self.port_id, set_val)
+                set_flag = True
         return set_flag
 
     def set_priority(self, set_val):
         set_flag = False
-        priority = self.poe_plat.get_port_priority(self.port_id)
-        cur_val = priority.get(PRIORITY)
-        if cur_val != set_val:
-            self.poe_plat.set_port_priority(self.port_id, set_val)
-            set_flag = True
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            priority = self.poe_plat.get_bt_port_parameters(self.port_id)
+            cur_val = priority.get(PRIORITY)
+            if cur_val != set_val:
+                self.poe_plat.set_bt_port_priority(self.port_id, set_val)
+                set_flag = True
+        else:
+            priority = self.poe_plat.get_port_priority(self.port_id)
+            cur_val = priority.get(PRIORITY)
+            if cur_val != set_val:
+                self.poe_plat.set_port_priority(self.port_id, set_val)
+                set_flag = True
         return set_flag
 
     def set_all_params(self, params):
@@ -682,6 +863,10 @@ class poeSystem(object):
         self.pm1 = 0
         self.pm2 = 0
         self.pm3 = 0
+        self.nvm_user_byte = 0
+        self.found_device = 0
+        self.event_exist = 0
+        self._4wire_bt = 0
 
     def update_system_status(self):
         params = self.poe_plat.get_power_supply_params()
@@ -693,23 +878,32 @@ class poeSystem(object):
         self.min_sd_volt = params.get(MIN_SD_VOLT)
         self.power_bank = params.get(POWER_BANK)
         self.power_src = self.poe_plat.bank_to_psu_str(self.power_bank)
+        self._4wire_bt  = self.poe_plat.support_4wire_bt()
+        if self._4wire_bt == 1:
+            system_status = self.poe_plat.get_bt_system_status()
+            self.cpu_status2 = system_status.get(CPU_STATUS2)
+            self.fac_default = system_status.get(FAC_DEFAULT)
+            self.priv_label = system_status.get(PRIV_LABEL)
+            self.nvm_user_byte = system_status.get(NVM_USER_BYTE)
+            self.found_device = system_status.get(FOUND_DEVICE)
+            self.event_exist = system_status.get(EVENT_EXIST)
+        else:
+            system_status = self.poe_plat.get_system_status()
+            self.cpu_status1 = system_status.get(CPU_STATUS1)
+            self.cpu_status2 = system_status.get(CPU_STATUS2)
+            self.fac_default = system_status.get(FAC_DEFAULT)
+            self.gie = system_status.get(GIE)
+            self.priv_label = system_status.get(PRIV_LABEL)
+            self.user_byte = system_status.get(USER_BYTE)
+            self.device_fail = system_status.get(DEVICE_FAIL)
+            self.temp_disco = system_status.get(TEMP_DISCO)
+            self.temp_alarm = system_status.get(TEMP_ALARM)
+            self.intr_reg = system_status.get(INTR_REG)
 
-        system_status = self.poe_plat.get_system_status()
-        self.cpu_status1 = system_status.get(CPU_STATUS1)
-        self.cpu_status2 = system_status.get(CPU_STATUS2)
-        self.fac_default = system_status.get(FAC_DEFAULT)
-        self.gie = system_status.get(GIE)
-        self.priv_label = system_status.get(PRIV_LABEL)
-        self.user_byte = system_status.get(USER_BYTE)
-        self.device_fail = system_status.get(DEVICE_FAIL)
-        self.temp_disco = system_status.get(TEMP_DISCO)
-        self.temp_alarm = system_status.get(TEMP_ALARM)
-        self.intr_reg = system_status.get(INTR_REG)
-
-        pm_method = self.poe_plat.get_pm_method()
-        self.pm1 = pm_method.get(PM1)
-        self.pm2 = pm_method.get(PM2)
-        self.pm3 = pm_method.get(PM3)
+            pm_method = self.poe_plat.get_pm_method()
+            self.pm1 = pm_method.get(PM1)
+            self.pm2 = pm_method.get(PM2)
+            self.pm3 = pm_method.get(PM3)
 
     def get_current_status(self, more_info=True):
         self.update_system_status()
@@ -727,6 +921,7 @@ class poeSystem(object):
             system_status[PM2] = self.pm2
             system_status[PM3] = self.pm3
             system_status[CPU_STATUS1] = self.cpu_status1
+            # cpu status2 on AT and BT
             system_status[CPU_STATUS2] = self.cpu_status2
             system_status[FAC_DEFAULT] = self.fac_default
             system_status[GIE] = self.gie
@@ -736,4 +931,8 @@ class poeSystem(object):
             system_status[TEMP_DISCO] = self.temp_disco
             system_status[TEMP_ALARM] = self.temp_alarm
             system_status[INTR_REG] = self.intr_reg
+            #only on BT
+            system_status[NVM_USER_BYTE] = self.nvm_user_byte
+            system_status[FOUND_DEVICE] = self.found_device
+            system_status[EVENT_EXIST] = self.event_exist
         return system_status
