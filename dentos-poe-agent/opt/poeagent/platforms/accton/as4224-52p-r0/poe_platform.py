@@ -16,6 +16,7 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
         PoeDrv.PoeDriver_microsemi_pd69200.__init__(self)
         self.log = PoeLog()
         self._total_poe_port = 48
+        self._4wire_bt = 0
         self._i2c_bus = 1
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
@@ -23,6 +24,8 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._msg_delay = 0.03
         # Wait time after saving system setting: 50ms
         self._save_sys_delay = 0.05
+        # Wait time after restore factory default setting(from hw spec): 100ms
+        self._restore_factory_default_delay = 0.1
 
         # item in matrix: (logic port, phy port)
         self._default_matrix = [
@@ -34,23 +37,18 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
             (32, 39), (33, 36), (34, 37), (35, 38), (36, 32), (37, 33), (38, 34), (39, 35),
             (40, 47), (41, 44), (42, 45), (43, 46), (44, 40), (45, 41), (46, 42), (47, 43)]
 
-        '''
-        +-----------------------------------------------+
-        | Power Banks | PSU1 PG | PSU2 PG | Power Limit |
-        |-----------------------------------------------|
-        |   Bank 13   |    NO   |   YES   |    680 W    |
-        |-----------------------------------------------|
-        |   Bank 14   |   YES   |    NO   |    680 W    |
-        |-----------------------------------------------|
-        |   Bank 15   |   YES   |   YES   |   1500 W    |
-        +-----------------------------------------------+
-        item in power bank: (bank, power limit)
-        '''
-        self._default_power_banks = [(13, 680), (14, 680), (15, 1500)]
-        self._max_shutdown_vol = 0x0239 # 56.9 V
-        self._min_shutdown_vol = 0x01F5 # 50.1 V
+        self._max_shutdown_vol = 0x0249 # 58.5 V
+        self._min_shutdown_vol = 0x0190 # 40.0 V
         self._guard_band = 0x01
         self._port_power_limit = 0x7530 # 30000 mW
+
+    def support_4wire_bt(self):
+        poe_ver = self.get_poe_versions()
+        major_ver = poe_ver[3:4]
+        if major_ver == "3":
+            self._4wire_bt = 1
+        return self._4wire_bt
+
     def total_poe_port(self):
         return self._total_poe_port
 
@@ -93,8 +91,7 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
             self.set_port_enDis(port_id, 0)
 
         # Set Power Bank
-        for (bank, power_limit) in self._default_power_banks:
-            self.set_power_bank(bank, power_limit)
+        self.set_power_bank(1, 800)
 
         # Set Port Power Limit
         for (logic_port, phy_port) in self._default_matrix:
@@ -114,10 +111,6 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
 
     def bank_to_psu_str(self, bank):
         powerSrc = "None"
-        if bank == 13:
-            powerSrc = "PSU2"
-        elif bank == 14:
-            powerSrc = "PSU1"
-        elif bank == 15:
+        if bank == 1:
             powerSrc = "PSU1, PSU2"
         return powerSrc
