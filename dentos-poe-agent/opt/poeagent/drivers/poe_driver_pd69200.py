@@ -120,7 +120,7 @@ class PoeDriver_microsemi_pd69200(object):
 
     def _run_communication_protocol(self, command, delay, msg_type=None):
         tx_msg = self._build_tx_msg(command)
-        rx_msg = self._communicate(tx_msg, self._msg_delay)
+        rx_msg = self._communicate(tx_msg, delay)
         if rx_msg is not None and msg_type is not None:
             result = PoeMsgParser().parse(rx_msg, msg_type)
             return result
