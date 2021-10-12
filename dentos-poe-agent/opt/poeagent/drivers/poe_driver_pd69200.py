@@ -120,7 +120,9 @@ class PoeDriver_microsemi_pd69200(object):
 
     def _run_communication_protocol(self, command, delay, msg_type=None):
         tx_msg = self._build_tx_msg(command)
+        print(tx_msg)
         rx_msg = self._communicate(tx_msg, delay)
+        print(rx_msg)
         if rx_msg is not None and msg_type is not None:
             result = PoeMsgParser().parse(rx_msg, msg_type)
             return result
@@ -208,7 +210,15 @@ class PoeDriver_microsemi_pd69200(object):
         return self._run_communication_protocol(command, self._msg_delay,
                                                 PoeMsgParser.MSG_SW_VERSION)
 
-    def set_temp_matrix(self, logic_port, phy_port_a, phy_port_b=0xFF):
+    def set_temp_matrix(self, logic_port, phy_port_a, phy_port_b=0xff):
+        command = [POE_PD69200_MSG_KEY_COMMAND,
+                   self._calc_msg_echo(),
+                   POE_PD69200_MSG_SUB_CHANNEL,
+                   POE_PD69200_MSG_SUB1_TEMP_MATRIX,
+                   logic_port, phy_port_a, phy_port_b]
+        self._run_communication_protocol(command, self._msg_delay)
+
+    def set_bt_temp_matrix(self, logic_port, phy_port_a, phy_port_b):
         command = [POE_PD69200_MSG_KEY_COMMAND,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_CHANNEL,
