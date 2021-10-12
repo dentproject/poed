@@ -26,20 +26,20 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._save_sys_delay = 0.05
         # Wait time after restore factory default setting(from hw spec): 100ms
         self._restore_factory_default_delay = 0.1
-        # item in matrix: (logic port, phy port)
+        # item in matrix: (logic port, phy port a,  phy port b)
         self._default_matrix = [
-            (0, 4), (1, 5), (2, 6), (3, 7),
-            (4, 1), (5, 2), (6, 3), (7, 0),
-            (8, 12), (9, 13), (10, 14), (11, 15),
-            (12, 11), (13, 10), (14, 9), (15, 8),
-            (16, 22), (17, 20), (18, 19), (19, 17),
-            (20, 30), (21, 28), (22, 27), (23, 25),
-            (24, 0xff), (25, 0xff), (26, 0xff), (27, 0xff),
-            (28, 0xff), (29, 0xff), (30, 0xff), (31, 0xff),
-            (32, 0xff), (33, 0xff), (34, 0xff), (35, 0xff),
-            (36, 0xff), (37, 0xff), (38, 0xff), (39, 0xff),
-            (40, 0xff), (41, 0xff), (42, 0xff), (43, 0xff),
-            (44, 0xff), (45, 0xff), (46, 0xff), (47, 0xff)]
+            (0, 4, 0xff), (1, 5, 0xff), (2, 6, 0xff), (3, 7, 0xff),
+            (4, 1, 0xff), (5, 2, 0xff), (6, 3, 0xff), (7, 0, 0xff),
+            (8, 12, 0xff), (9, 13, 0xff), (10, 14, 0xff), (11, 15, 0xff),
+            (12, 11, 0xff), (13, 10, 0xff), (14, 9, 0xff), (15, 8, 0xff),
+            (16, 22, 21), (17, 20, 23), (18, 19, 18), (19, 17, 16),
+            (20, 30, 29), (21, 28, 31), (22, 27, 26), (23, 25, 24),
+            (24, 0xff, 0xff), (25, 0xff, 0xff), (26, 0xff, 0xff), (27, 0xff, 0xff),
+            (28, 0xff, 0xff), (29, 0xff, 0xff), (30, 0xff, 0xff), (31, 0xff, 0xff),
+            (32, 0xff, 0xff), (33, 0xff, 0xff), (34, 0xff, 0xff), (35, 0xff, 0xff),
+            (36, 0xff, 0xff), (37, 0xff, 0xff), (38, 0xff, 0xff), (39, 0xff, 0xff),
+            (40, 0xff, 0xff), (41, 0xff, 0xff), (42, 0xff, 0xff), (43, 0xff, 0xff),
+            (44, 0xff, 0xff), (45, 0xff, 0xff), (46, 0xff, 0xff), (47, 0xff, 0xff)]
 
         self._max_shutdown_vol = 0x0249 # 58.5 V
         self._min_shutdown_vol = 0x01E0 # 48.0 V
@@ -88,8 +88,9 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
 
     def init_poe(self):
         # Set Temporary Matrix
-        for (logic_port, phy_port) in self._default_matrix:
-            self.set_temp_matrix(logic_port, phy_port)
+        for (logic_port, phy_port_a, phy_port_b) in self._default_matrix:
+            self.set_bt_temp_matrix(logic_port, phy_port_a, phy_port_b)
+
         self.program_active_matrix()
 
         # Disable all ports first
