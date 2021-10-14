@@ -16,16 +16,9 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
         PoeDrv.PoeDriver_microsemi_pd69200.__init__(self)
         self.log = PoeLog()
         self._total_poe_port = 48
-        self._4wire_bt = 0
         self._i2c_bus = 1
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
-        # Time between commands (from hw spec): 30ms
-        self._msg_delay = 0.03
-        # Wait time after saving system setting: 50ms
-        self._save_sys_delay = 0.05
-        # Wait time after restore factory default setting(from hw spec): 100ms
-        self._restore_factory_default_delay = 0.1
 
         # item in matrix: (logic port, phy port)
         self._default_matrix = [
@@ -41,13 +34,6 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._min_shutdown_vol = 0x0190 # 40.0 V
         self._guard_band = 0x01
         self._port_power_limit = 0x7530 # 30000 mW
-
-    def support_4wire_bt(self):
-        poe_ver = self.get_poe_versions()
-        major_ver = poe_ver[3:4]
-        if major_ver == "3":
-            self._4wire_bt = 1
-        return self._4wire_bt
 
     def total_poe_port(self):
         return self._total_poe_port
