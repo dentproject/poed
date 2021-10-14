@@ -38,6 +38,13 @@ class PoeCommExclusiveLock(object):
 class PoeDriver_microsemi_pd69200(object):
     def __init__(self):
         self._echo = 0x00
+        self._4wire_bt = 0
+        # Time between commands: 30ms
+        self._msg_delay = 0.03
+        # Wait time after saving system setting: 50ms
+        self._save_sys_delay = 0.05
+        # Wait time after restore factory default setting: 100ms
+        self._restore_factory_default_delay = 0.1
 
     def _calc_msg_echo(self):
         self._echo += 1
@@ -208,7 +215,15 @@ class PoeDriver_microsemi_pd69200(object):
         return self._run_communication_protocol(command, self._msg_delay,
                                                 PoeMsgParser.MSG_SW_VERSION)
 
-    def set_temp_matrix(self, logic_port, phy_port_a, phy_port_b=0xff):
+    def support_4wire_bt(self, min_major_ver=3):
+        poe_ver = self.get_poe_versions()
+        major_ver = int(poe_ver.split('.')[1])
+        if major_ver >= min_major_ver:
+            return 1
+        else:
+            return 0
+
+    def set_temp_matrix(self, logic_port, phy_port_a, phy_port_b=0xFF):
         command = [POE_PD69200_MSG_KEY_COMMAND,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_CHANNEL,
@@ -709,10 +724,9 @@ class poePort(object):
         self.power_limit = 0
         self.voltage = 0
         self.current = 0
-        self._4wire_bt = 0
+        self._4wire_bt = self.poe_plat._4wire_bt
 
     def update_port_status(self):
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
             params = self.poe_plat.get_bt_port_parameters(self.port_id)
             self.status = TBL_BT_STATUS_TO_CFG[params.get(STATUS)]
@@ -752,7 +766,6 @@ class poePort(object):
     def get_current_status(self, more_info=True):
         self.update_port_status()
         port_status = OrderedDict()
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
             port_status[PORT_ID] = self.port_id + 1
             port_status[ENDIS] = self.enDis
@@ -786,7 +799,6 @@ class poePort(object):
 
     def set_enDis(self, set_val):
         set_flag = False
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
             status = self.poe_plat.get_bt_port_parameters(self.port_id)
             cur_val = status.get(ENDIS)
@@ -803,9 +815,8 @@ class poePort(object):
 
     def set_powerLimit(self, set_val):
         set_flag = False
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
-            print(" Not support on BT firmware")
+            raise RuntimeError("Not support on BT firmware")
         else:
             power_limit = self.poe_plat.get_port_power_limit(self.port_id)
             cur_val = power_limit.get(PPL)
@@ -816,7 +827,6 @@ class poePort(object):
 
     def set_priority(self, set_val):
         set_flag = False
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
             priority = self.poe_plat.get_bt_port_parameters(self.port_id)
             cur_val = priority.get(PRIORITY)
@@ -874,7 +884,7 @@ class poeSystem(object):
         self.nvm_user_byte = 0
         self.found_device = 0
         self.event_exist = 0
-        self._4wire_bt = 0
+        self._4wire_bt = self.poe_plat._4wire_bt
 
     def update_system_status(self):
         params = self.poe_plat.get_power_supply_params()
@@ -886,7 +896,6 @@ class poeSystem(object):
         self.min_sd_volt = params.get(MIN_SD_VOLT)
         self.power_bank = params.get(POWER_BANK)
         self.power_src = self.poe_plat.bank_to_psu_str(self.power_bank)
-        self._4wire_bt  = self.poe_plat.support_4wire_bt()
         if self._4wire_bt == 1:
             system_status = self.poe_plat.get_bt_system_status()
             self.cpu_status2 = system_status.get(CPU_STATUS2)
