@@ -19,6 +19,7 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._i2c_bus = 1
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
+        self._4wire_bt = self.support_4wire_bt(3)
         # item in matrix: (logic port, phy port a,  phy port b)
         self._default_matrix = [
             (0, 4, 0xff), (1, 5, 0xff), (2, 6, 0xff), (3, 7, 0xff),
