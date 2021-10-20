@@ -551,7 +551,7 @@ class PoeMsgParser(object):
         parsed_data = {
             STATUS: msg[POE_PD69200_MSG_OFFSET_SUB],
             ENDIS: msg[POE_PD69200_MSG_OFFSET_SUB1],
-            PROTOCOL: msg[POE_PD69200_MSG_OFFSET_DATA5],
+            OPERATION_MODE: msg[POE_PD69200_MSG_OFFSET_DATA5],
             PRIORITY: msg[POE_PD69200_MSG_OFFSET_DATA7]
         }
         return parsed_data
@@ -669,8 +669,8 @@ class PoeMsgParser(object):
 
     def _parse_bt_port_class(self, msg):
         parsed_data = {
+            MEASURED_CLASS: msg[POE_PD69200_MSG_OFFSET_SUB2],
             CLASS: msg[POE_PD69200_MSG_OFFSET_DATA8],
-
             TPPL: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA9],
                                 msg[POE_PD69200_MSG_OFFSET_DATA10])
         }
@@ -724,14 +724,27 @@ class poePort(object):
         self.power_limit = 0
         self.voltage = 0
         self.current = 0
+        self.measured_class = 0
         self._4wire_bt = self.poe_plat._4wire_bt
 
     def update_port_status(self):
         if self._4wire_bt == 1:
             params = self.poe_plat.get_bt_port_parameters(self.port_id)
+            params_class = self.poe_plat.get_bt_port_class(self.port_id)
             self.status = TBL_BT_STATUS_TO_CFG[params.get(STATUS)]
             self.enDis = TBL_ENDIS_TO_CFG[params.get(ENDIS)]
-            self.protocol = TBL_BT_PROTOCOL_TO_CFG[params.get(PROTOCOL)]
+            self.measured_class = params_class.get(MEASURED_CLASS) >> 4
+            # Delivers power, port status: 0x80-0x91
+            if params.get(STATUS) >= 0x80 and params.get(STATUS) <= 0x91:
+                if self.measured_class >= 0 and self.measured_class <= 4:
+                    self.protocol = "IEEE802.3AF/AT"
+                elif self.measured_class >= 5 and self.measured_class <= 8:
+                    self.protocol = "IEEE802.3BT"
+                else:
+                    self.protocol = "NA"
+            else:
+                self.protocol = "NA"
+
             self.priority = TBL_PRIORITY_TO_CFG[params.get(PRIORITY)]
 
             power_limit = self.poe_plat.get_bt_port_class(self.port_id)

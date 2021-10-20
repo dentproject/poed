@@ -76,6 +76,8 @@ POE_CFG_VER    = "poe_config_version"
 CFG_SERIAL_NUM = "file_serial_number"
 LAST_SAVE_TIME = "file_save_time"
 LAST_SET_TIME  = "last_poe_set_time"
+OPERATION_MODE = "operation_mode"
+MEASURED_CLASS = "measured_class"
 
 # IPC EVENT
 POE_SET_EVT    = "/tmp/poe_set_event"
