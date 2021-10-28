@@ -860,9 +860,10 @@ class poePort(object):
             set_val = TBL_ENDIS_TO_DRV[params[ENDIS]]
             set_flag |= self.set_enDis(set_val)
 
-        if POWER_LIMIT in params:
-            set_val = params[POWER_LIMIT]
-            set_flag |= self.set_powerLimit(set_val)
+        if self._4wire_bt != 1:
+            if POWER_LIMIT in params:
+                set_val = params[POWER_LIMIT]
+                set_flag |= self.set_powerLimit(set_val)
 
         if PRIORITY in params:
             set_val = TBL_PRIORITY_TO_DRV[params[PRIORITY]]
