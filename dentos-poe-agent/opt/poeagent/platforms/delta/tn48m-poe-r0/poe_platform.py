@@ -120,12 +120,6 @@ class PoePlatform_delta_tn48m_poe(PoeDrv.PoeDriver_microsemi_pd69200):
                            POE_PD69200_MSG_DATA_PM2_PPL,
                            POE_PD69200_MSG_DATA_PM3_NO_COND)
 
-        # Enable all ports
-        for port_id in range(self.total_poe_port()):
-            self.set_port_enDis(port_id, 1)
-
-        # Save POE System Settings
-        self.save_system_settings()
 
     def bank_to_psu_str(self, bank):
         powerSrc = "None"
