@@ -19,6 +19,7 @@ from datetime import datetime, date
 from time import sleep
 from poe_version import *
 
+import binascii
 import re
 import imp
 import sys
@@ -156,13 +157,34 @@ class PoeCLI(object):
                                 "range: 0x0 (mW) - 0xffff (mW)\n"
                                 "This field will be ignored if val sets to 0xffff")
         # Save Sub Command
-        save_parser = root_sub_parser.add_parser("save", help="Save PoE system settings")
-        save_parser.add_argument("-s", "--settings", required=True, action="store_true",
-                                 help="Save PoE system settings")
+        save_parser = root_sub_parser.add_parser("savechip", help=
+            "This command saves the current user values into the non-volatile memory and these user values"
+            "become the defaults after any reset. "
+            "To change the default back to the initial factory values, use the Restore Factory Defaults cmd."
+            "(poecli restore_poe_system). The persistent config won't change until 'poecli cfg --save' issued."
+        )
+
+        # CFG Sub Command
+        cfg_parser = root_sub_parser.add_parser("cfg", help="CFG command, to manipulate the poe agent config files.",
+                                                formatter_class=argparse.RawTextHelpFormatter)
+        cfg_parser.add_argument("-s", "--save", action="store_true",
+                                help="Save current runtime settings to persistent file.\n")
+        cfg_parser.add_argument("-l", "--load", action="store_true",
+                                help="Load settings from persistent file.\n")
+        cfg_parser.add_argument("-c", "--config",
+                                metavar="<val>",
+                                help="Assign file path for save/load operation,\n"
+                                "instead of persistent config, Example:\n"
+                                "poecli cfg -s -c [Config Path]")
 
         # Restore Sub Command
-        resore_parser = root_sub_parser.add_parser("restore",
-                                                   help="Restores modified values to factory default values")
+        restore_parser = root_sub_parser.add_parser("restore_poe_system", help=
+                        "This command restores modified values to POE chip factory default values \n"
+                        "that are part of the firmware release version."
+                        "Ports will shut down after sending this command."
+                        "After restore factory default, it will initialize the port setting for the platform."
+                        "The persistent config won't change until 'poecli cfg --save' issued.\n"
+                        )
 
         return root_parser
 
@@ -404,10 +426,15 @@ def main(argv):
     except Exception as e:
         raise RuntimeError("Failed to load poe platform! (%s)" % str(e))
 
+    if wait_poed_busy() == False:
+        # POED is busy within 5s, BusyID=248
+        os._exit(-8)
+
     parser = poecli._build_parser()
     args = parser.parse_args()
-
+    cfg_action=""
     set_flag = False
+    poed_alive = poecli.is_poed_alive()
     if args.subcmd == "show":
         if (args.ports is None and args.system is False and \
             args.all is False and args.mask is False and args.version is False):
@@ -434,16 +461,32 @@ def main(argv):
             set_flag |= poecli.set_ports_priority(args.ports, args.level)
         if args.powerLimit is not None:
             set_flag |= poecli.set_ports_powerLimit(args.ports, args.powerLimit)
-    elif args.subcmd == "save":
-        if not args.settings:
-            parser.error("No action requested for %s command" % args.subcmd)
-        poecli.save_system_settings()
-    elif args.subcmd == "restore":
-        poecli.restore_factory_default()
-        set_flag = True
 
-    if set_flag == True and poecli.is_poed_alive() == True:
+    elif args.subcmd == "savechip":
+        poecli.save_system_settings()
+        set_flag = True
+    elif args.subcmd == "restore_poe_system":
+        poecli.restore_factory_default()
+    elif args.subcmd == "cfg":
+        if poed_alive:
+            cfg_action += POECLI_CFG+","
+            if args.save:
+                cfg_action += POED_SAVE_ACTION+","
+                if args.config is not None:
+                    cfg_action += args.config+","
+            elif args.load:
+                cfg_action += POED_LOAD_ACTION+","
+                if args.config is not None:
+                    cfg_action += args.config+","
+            cfg_action = "".join(cfg_action.rsplit(",", 1))
+            print("cfg_action: {0}".format(cfg_action))
+        else:
+            print("Poe Agent not started, cfg operation will be ignore.")
+
+    if set_flag == True and poed_alive == True:
         poecli.send_ipc_event()
+    elif len(cfg_action)>0 and poed_alive == True:
+        poecli.send_ipc_event(cfg_action)
 
 if __name__ == '__main__':
     try:

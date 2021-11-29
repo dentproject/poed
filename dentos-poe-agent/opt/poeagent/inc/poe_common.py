@@ -19,6 +19,7 @@ import sys
 import time
 import syslog
 import fcntl
+from pathlib import Path
 
 # POE Driver Attributes
 TOTAL_PORTS   = "total_ports"
@@ -83,12 +84,15 @@ MEASURED_CLASS = "measured_class"
 # IPC EVENT
 POE_IPC_EVT    = "/run/poe_ipc_event"
 POECLI_SET     = "poecli_set"
+POECLI_CFG     = "poecli_cfg"
 
 
 
 #POED CFG Predefine
 POED_PERM_CFG_PATH    = "/etc/poe_agent/poe_perm_cfg.json"
 POED_RUNTIME_CFG_PATH = "/run/poe_runtime_cfg.json"
+POED_SAVE_ACTION = "save"
+POED_LOAD_ACTION = "load"
 
 # POE Access Exclusive Lock
 POE_ACCESS_LOCK = "/run/poe_access.lock"
@@ -97,6 +101,10 @@ EXLOCK_RETRY = 5
 # POE PID file location
 POED_PID_PATH   = "/run/poed.pid"
 
+# POE fileflag function
+POED_BUSY_FLAG = "/run/.poed_busy"
+POED_EXIT_FLAG = "/run/.poed_exit"
+FILEFLAG_RETRY = 5
 
 class PoeLog(object):
     def __init__(self, debug_mode=False):
@@ -168,3 +176,49 @@ def PoeAccessExclusiveLock(func):
         return res
     return wrap_cmd
 
+
+def touch_file(file_path):
+    try:
+        return Path(file_path).touch()
+    except Exception as e:
+        print("Fail to touch: "+file_path+",err: "+str(e))
+        return False
+
+
+def remove_file(file_path):
+    try:
+        if check_file(file_path):
+            return Path(file_path).unlink()
+        else:
+            return True
+    except Exception as e:
+        print("Fail to remove: "+file_path+",err: "+str(e))
+        return False
+
+
+def check_file(file_path):
+    try:
+        return Path(file_path).exists()
+    except Exception as e:
+        print("Fail to check: "+file_path+",err: "+str(e))
+        return False
+
+
+def wait_poed_busy(timeout=FILEFLAG_RETRY):
+    ret = check_file(POED_BUSY_FLAG)
+    while ret == True:
+        ret = check_file(POED_BUSY_FLAG)
+        print("\rpoe agent busy...")
+        if timeout > 0:
+            timeout -= 1
+        else:
+            print("\r\rpoe agent busy...timeout")
+            return False
+        time.sleep(1)
+    return True
+
+
+def conv_byte_to_hex(byte_in):
+    hex_string = "".join("%02x," % b for b in byte_in)
+    hex_string = hex_string+"[EOF]"
+    return hex_string
