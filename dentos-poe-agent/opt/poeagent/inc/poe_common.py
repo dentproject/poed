@@ -16,6 +16,7 @@ limitations under the License.
 
 import os
 import sys
+import time
 import syslog
 import fcntl
 
@@ -80,11 +81,22 @@ OPERATION_MODE = "operation_mode"
 MEASURED_CLASS = "measured_class"
 
 # IPC EVENT
-POE_SET_EVT    = "/tmp/poe_set_event"
+POE_IPC_EVT    = "/run/poe_ipc_event"
 POECLI_SET     = "poecli_set"
 
+
+
+#POED CFG Predefine
+POED_PERM_CFG_PATH    = "/etc/poe_agent/poe_perm_cfg.json"
+POED_RUNTIME_CFG_PATH = "/run/poe_runtime_cfg.json"
+
 # POE Access Exclusive Lock
-POE_ACCESS_LOCK = "/tmp/poe_access.lock"
+POE_ACCESS_LOCK = "/run/poe_access.lock"
+EXLOCK_RETRY = 5
+
+# POE PID file location
+POED_PID_PATH   = "/run/poed.pid"
+
 
 class PoeLog(object):
     def __init__(self, debug_mode=False):
@@ -125,13 +137,34 @@ def PoeAccessExclusiveLock(func):
             fd = open(POE_ACCESS_LOCK, 'r')
         except IOError:
             fd = open(POE_ACCESS_LOCK, 'wb')
-
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            res = func(*args, **kwargs)
-        except IOError:
-            pass
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            return res
+        res = False
+        LOCKED = False
+        retry = EXLOCK_RETRY
+        while retry > 0:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+                print("[{0}]Locked, retry: {1}".format(
+                    func.__name__, str(retry)))
+                LOCKED = True
+                break
+            except Exception as e:
+                # pass
+                retry = retry-1
+                print("[{0}]Retry locking, retry: {1}, Exception: {2}".format(
+                    func.__name__, str(retry),str(e)))
+                time.sleep(0.1)
+                if retry == 0:
+                    return res
+        if LOCKED:
+            try:
+                print("Locked and execution [{0}]".format(
+                    func.__name__))
+                res = func(*args, **kwargs)
+            except Exception as e:
+                print("Locked but execution [{0}] failed: {1}".format(
+                    func.__name__, str(e)))
+            finally:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        return res
     return wrap_cmd
+

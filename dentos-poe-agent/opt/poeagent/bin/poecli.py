@@ -33,7 +33,6 @@ import pathlib
 bootcmd_path   = "/proc/cmdline"
 pa_root_path   = os.getcwd() + "/../"
 plat_root_path = pa_root_path + "platforms"
-poed_pid_path  = "/run/poed.pid"
 
 PORTLIST_VALIDATION1 = "^([1-9]{0,1}[0-9]{1})-([1-9]{0,1}[0-9]{1})$"
 PORTLIST_VALIDATION2 = "^([1-9]{0,1}[0-9]{1})$"
@@ -385,17 +384,17 @@ class PoeCLI(object):
 
     def is_poed_alive(self):
         try:
-            pid = int(open(poed_pid_path, 'r').read())
+            pid = int(open(POED_PID_PATH, 'r').read())
             os.kill(pid, 0)
         except OSError:
             return False
         else:
             return True
 
-    def send_set_event(self):
+    def send_ipc_event(self, action=POECLI_SET):
         try:
-            with open(POE_SET_EVT, "w") as f:
-                f.write(POECLI_SET)
+            with open(POE_IPC_EVT, "w") as f:
+                f.write(action)
         except Exception as e:
             pass
 
@@ -444,7 +443,7 @@ def main(argv):
         set_flag = True
 
     if set_flag == True and poecli.is_poed_alive() == True:
-        poecli.send_set_event()
+        poecli.send_ipc_event()
 
 if __name__ == '__main__':
     try:

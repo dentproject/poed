@@ -33,7 +33,6 @@ import binascii
 bootcmd_path   = "/proc/cmdline"
 pa_root_path   = os.getcwd() + "/../"
 plat_root_path = pa_root_path + "platforms"
-poed_pid_path  = "/run/poed.pid"
 
 TIME_FMT       = "%Y/%m/%d %H:%M:%S"
 
@@ -130,9 +129,9 @@ class PoeAgent(object):
         self.last_power_bank = 0
         self.cfg_serial_num = 0
 
-        self.runtime_cfg = PoeConfig("/run/poe_runtime_cfg.json",
+        self.runtime_cfg = PoeConfig(POED_RUNTIME_CFG_PATH,
                                      self.plat_name)
-        self.permanent_cfg = PoeConfig("/etc/poe_agent/poe_perm_cfg.json",
+        self.permanent_cfg = PoeConfig(POED_PERM_CFG_PATH,
                                        self.plat_name)
         self.cfg_update_intvl_rt = 4
         self.cfg_update_intvl_perm = 30
@@ -340,13 +339,13 @@ class PoeAgent(object):
 
     def create_poe_set_ipc(self):
         try:
-            os.mkfifo(POE_SET_EVT)
+            os.mkfifo(POE_IPC_EVT)
         except OSError as oe:
             if oe.errno != errno.EEXIST:
                 self.log.err("Failed to open named pipe: %s" % str(e))
 
 def get_prev_pid():
-    return int(open(poed_pid_path, 'r').read())
+    return int(open(POED_PID_PATH, 'r').read())
 
 def is_still_alive(pid):
     try:
@@ -357,7 +356,7 @@ def is_still_alive(pid):
         return True
 
 def save_cur_pid():
-    open(poed_pid_path, 'w').write(str(os.getpid()))
+    open(POED_PID_PATH, 'w').write(str(os.getpid()))
 
 def main(argv):
     global thread_flag
@@ -398,7 +397,7 @@ def main(argv):
         pa.create_poe_set_ipc()
         while thread_flag is True:
             try:
-                with open(POE_SET_EVT, 'r') as f:
+                with open(POE_IPC_EVT, 'r') as f:
                     data = f.read()
                     if data == POECLI_SET:
                         pa.update_set_time()
