@@ -19,6 +19,7 @@ from shutil import copyfile
 from poe_common import *
 from poe_version import *
 
+from pathlib import Path
 import os
 import sys
 import errno
@@ -271,10 +272,15 @@ class PoeAgent(object):
             self.log.err("An exception to save poe cfg: %s" % str(e))
         return False
 
+
+    def save_curerent_runtime(self):
+        if self.runtime_cfg.is_valid():
+            copyfile(self.runtime_cfg.path(),
+                     self.permanent_cfg.path())
+ 
     def autosave_main(self):
         global thread_flag
         rt_counter = 0
-        perm_counter = 0
         fail_counter = 0
         while thread_flag is True:
             try:
@@ -285,12 +291,7 @@ class PoeAgent(object):
                     else:
                         self.log.warn(
                             "Failed to save cfg data in autosave routine!")
-                if perm_counter >= self.cfg_update_intvl_perm and \
-                   self.runtime_cfg.is_valid():
-                    copyfile(self.runtime_cfg.path(),
-                             self.permanent_cfg.path())
                 rt_counter += self.autosave_intvl
-                perm_counter += self.autosave_intvl
                 time.sleep(self.autosave_intvl)
             except Exception as e:
                 fail_counter += 1
@@ -376,6 +377,7 @@ def main(argv):
 
     pa = PoeAgent()
     if pa.plat_supported:
+        touch_file(POED_BUSY_FLAG)
         if pa.apply_platform_defaults() == True:
             pa.log.info("Success to apply platform PoE settings!")
         else:
@@ -385,25 +387,78 @@ def main(argv):
         if is_warm_boot and pa.runtime_cfg.is_valid():
             poe_cfg = pa.runtime_cfg
         pa.log.info("Configure PoE ports from \"%s\"" % poe_cfg.path())
-
+        touch_file(POED_BUSY_FLAG)
         if pa.load_poe_cfg(poe_cfg) == True:
             pa.log.info("Success to restore port configurations from \"%s\"." % poe_cfg.path())
         else:
             pa.log.warn("Failed to restore port configurations from \"%s\"." % poe_cfg.path())
-            pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+            if Path(pa.permanent_cfg.path()).exists() == False:
+                pa.log.info(
+                    "Presistant config file loss, reconstruct \"%s\" config from poe chip runtime setting." % poe_cfg.path())
+                cfg_data = pa.collect_running_state()
+                if pa.save_poe_cfg(pa.runtime_cfg, cfg_data) == True:
+                    copyfile(pa.runtime_cfg.path(),
+                             pa.permanent_cfg.path())
+            else:
+                pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
 
         pa.autosave_thread.start()
 
+
+        remove_file(POED_BUSY_FLAG)
         pa.create_poe_set_ipc()
         while thread_flag is True:
             try:
                 with open(POE_IPC_EVT, 'r') as f:
-                    data = f.read()
-                    if data == POECLI_SET:
-                        pa.update_set_time()
-                        pa.log.info("Receive a set event from poecli!")
-                    else:
-                        pa.log.notice("Receive data: %s, skipped!" % data)
+                    data_list = str(f.read()).split(",")
+                    for data in data_list:
+                        if data == POECLI_SET:
+                            pa.update_set_time()
+                            pa.log.info("Receive a set event from poecli!")
+                            break
+                        elif data == POECLI_CFG:
+                            pa.log.info("Receive a cfg event from poecli!")
+                            action=""
+                            apply=""
+                            file = None
+                            if len(data_list) > 1:
+                                action = data_list[1]
+                                pa.log.info("CFG Action: {0}".format(action))
+                                if len(data_list) > 2:
+                                    file = data_list[2]
+                                    pa.log.info("CFG File: {0}".format(file))
+                                    if len(data_list) > 3:
+                                        apply = data_list[3]
+                                        pa.log.info("CFG Apply: {0}".format(apply))
+                                if action==POED_SAVE_ACTION:
+                                    if file == None:
+                                        pa.log.info(
+                                            "CFG Save: Save runtime setting to persistent file")
+                                        pa.save_curerent_runtime()
+                                    else:
+                                        copyfile(pa.runtime_cfg.path(),
+                                                 file)
+                                        pa.log.info(
+                                            "CFG Save: Save runtime setting to {0}".format(file))
+                                elif action==POED_LOAD_ACTION:
+                                    if file == None:
+                                        pa.log.info(
+                                            "CFG Load: Load persistent file")
+                                        result = pa.load_poe_cfg(pa.permanent_cfg)
+                                    else:
+                                        pa.log.info(
+                                            "CFG Load: Load cfg file from {0}".format(file))
+                                        temp_cfg = PoeConfig(file, pa.plat_name)
+                                        result = pa.load_poe_cfg(temp_cfg)
+                                    if result == True:
+                                        pa.update_set_time()
+
+
+                                break
+                        else:
+                            pa.log.notice("Receive data: %s, skipped!" % data)
+
+
             except Exception as e:
                 pa.log.err("An exception to listen poe set event: %s, skipped."
                            % str(e))
@@ -413,6 +468,7 @@ def main(argv):
 
 def poed_exit(sig=0, frame=None):
     global thread_flag
+    remove_file(POED_BUSY_FLAG)
     thread_flag = False
     exit(0)
 
