@@ -5,6 +5,7 @@ After=syslog.service lldpd.service ntp.service
 [Service]
 Type=simple
 Restart=always
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/usr/sbin/poed
 
 [Install]
