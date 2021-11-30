@@ -36,6 +36,7 @@ class PoeCommExclusiveLock(object):
         return wrap_comm
 
 class PoeDriver_microsemi_pd69200(object):
+    _last_send_key=None
     def __init__(self):
         self._echo = 0x00
         self._4wire_bt = 0
@@ -45,6 +46,11 @@ class PoeDriver_microsemi_pd69200(object):
         self._save_sys_delay = 0.05
         # Wait time after restore factory default setting: 100ms
         self._restore_factory_default_delay = 0.1
+        # Wait time to clear up poe chip I2C buffer: 500ms
+        self._clear_bus_buffer_delay = 0.5
+        # Wake up time delay after reset poe chip command: 300ms
+        self._reset_poe_chip_delay = 0.3
+
 
     def _calc_msg_echo(self):
         self._echo += 1
@@ -93,17 +99,17 @@ class PoeDriver_microsemi_pd69200(object):
         if (tx_key == POE_PD69200_MSG_KEY_COMMAND or tx_key == POE_PD69200_MSG_KEY_PROGRAM) and \
                 rx_key != POE_PD69200_MSG_KEY_REPORT:
             raise RuntimeError("Key field in Tx/Rx message is mismatch,\
-                               Tx key is %d, Rx key should be %d, but received %d" %
+                               Tx key is %02x, Rx key should be %02x, but received %02x" %
                                (tx_key, POE_PD69200_MSG_KEY_REPORT, rx_key))
         if tx_key == POE_PD69200_MSG_KEY_REQUEST and rx_key != POE_PD69200_MSG_KEY_TELEMETRY:
             raise RuntimeError("Key field in Tx/Rx message is mismatch,\
-                               Tx key is %d, Rx key should be %d, but received %d" %
-                               (tx_key, POE_PD69200_MSG_KEY_REPORT, rx_key))
+                               Tx key is %02x, Rx key should be %02x, but received %02x" %
+                               (tx_key, POE_PD69200_MSG_KEY_TELEMETRY, rx_key))
 
         tx_echo, rx_echo = tx_msg[POE_PD69200_MSG_OFFSET_ECHO], rx_msg[POE_PD69200_MSG_OFFSET_ECHO]
         if rx_echo != tx_echo:
             raise RuntimeError("Echo field in Tx/Rx message is mismatch,\
-                               Tx Echo is %d, Rx Echo is %d" % (tx_echo, rx_echo))
+                               Tx Echo is %02x, Rx Echo is %02x" % (tx_echo, rx_echo))
 
         csum = self._calc_msg_csum(rx_msg[0:POE_PD69200_MSG_OFFSET_CSUM_H])
         if (rx_msg[POE_PD69200_MSG_OFFSET_CSUM_H] != csum[0] or
@@ -116,18 +122,29 @@ class PoeDriver_microsemi_pd69200(object):
         while retry < POE_PD69200_COMM_RETRY_TIMES:
             try:
                 self._xmit(tx_msg, delay)
+                if retry>0:
+                    print("Send(retry): {0}".format(conv_byte_to_hex(tx_msg)))
                 rx_msg = self._recv()
                 self._check_rx_msg(rx_msg, tx_msg)
                 return rx_msg
             except Exception as e:
+                print("_communicate error: {0}".format(str(e)))
+                print("Send: {0}".format(conv_byte_to_hex(tx_msg)))
+                print("Recv: {0}".format(conv_byte_to_hex(rx_msg)))
                 rx_msg = self._recv()
+                # Wait 0.5s to clear up I2C buffer
+                time.sleep(self._clear_bus_buffer_delay)
                 retry += 1
         raise RuntimeError(
             "Problems in running poe communication protocol - %s" % str(e))
 
     def _run_communication_protocol(self, command, delay, msg_type=None):
         tx_msg = self._build_tx_msg(command)
+        if self._last_send_key == tx_msg[POE_PD69200_MSG_OFFSET_KEY] and \
+                tx_msg[POE_PD69200_MSG_OFFSET_KEY] == POE_PD69200_MSG_KEY_COMMAND:
+            time.sleep(self._msg_delay)
         rx_msg = self._communicate(tx_msg, delay)
+        self._last_send_key = tx_msg[POE_PD69200_MSG_OFFSET_KEY]
         if rx_msg is not None and msg_type is not None:
             result = PoeMsgParser().parse(rx_msg, msg_type)
             return result
@@ -141,7 +158,7 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_RESET,
                    0x00,
                    POE_PD69200_MSG_SUB1_RESET]
-        self._run_communication_protocol(command, self._msg_delay)
+        self._run_communication_protocol(command, self._reset_poe_chip_delay)
 
     def restore_factory_default(self):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
@@ -335,7 +352,7 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_BT_MSG_DATA_PORT_OP_MODE_NO_CHANGE,
                    POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
                    priority]
-        self._run_communication_protocol(command, self._msg_delay)   
+        self._run_communication_protocol(command, self._msg_delay)
 
     def get_port_priority(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -431,7 +448,7 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_BT_MSG_SUB1_PORTS_MEASUREMENT,
                    logic_port]
         return self._run_communication_protocol(command, self._msg_delay,
-                                            PoeMsgParser.MSG_BT_PORT_MEASUREMENTS)                      
+                                            PoeMsgParser.MSG_BT_PORT_MEASUREMENTS)
     def get_poe_device_parameters(self, csnum):
         command = [POE_PD69200_MSG_KEY_REQUEST,
                    self._calc_msg_echo(),
