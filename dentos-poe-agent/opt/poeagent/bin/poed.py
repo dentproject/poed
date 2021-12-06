@@ -137,6 +137,8 @@ class PoeAgent(object):
         self.cfg_update_intvl_rt = 4
         self.cfg_update_intvl_perm = 30
         self.cfg_load_retry = 3
+        self.rt_counter = 0
+        self.fail_counter = 0
         self.autosave_intvl = 1
         self.autosave_thread = threading.Thread(target=self.autosave_main)
 
@@ -277,26 +279,26 @@ class PoeAgent(object):
         if self.runtime_cfg.is_valid():
             copyfile(self.runtime_cfg.path(),
                      self.permanent_cfg.path())
- 
+
     def autosave_main(self):
         global thread_flag
-        rt_counter = 0
-        fail_counter = 0
+        self.rt_counter = 0
+        self.fail_counter = 0
         while thread_flag is True:
             try:
-                if rt_counter >= self.cfg_update_intvl_rt:
+                if self.rt_counter >= self.cfg_update_intvl_rt:
                     cfg_data = self.collect_running_state()
                     if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
-                        rt_counter = 0
+                        self.rt_counter = 0
                     else:
                         self.log.warn(
                             "Failed to save cfg data in autosave routine!")
-                rt_counter += self.autosave_intvl
+                self.rt_counter += self.autosave_intvl
                 time.sleep(self.autosave_intvl)
             except Exception as e:
-                fail_counter += 1
+                self.fail_counter += 1
                 self.log.err("An exception in autosave routine: %s, cnt: %d" %
-                             (str(e), fail_counter))
+                             (str(e), self.fail_counter))
                 time.sleep(1)
 
     @PoeAccessExclusiveLock
@@ -415,6 +417,10 @@ def main(argv):
                         if data == POECLI_SET:
                             pa.update_set_time()
                             pa.log.info("Receive a set event from poecli!")
+                            if pa.rt_counter <pa.cfg_update_intvl_rt:
+                                pa.log.info("Reset rt_counter timing: {0}".format(
+                                    str(pa.cfg_update_intvl_rt)))
+                                pa.rt_counter = pa.cfg_update_intvl_rt
                             break
                         elif data == POECLI_CFG:
                             pa.log.info("Receive a cfg event from poecli!")
