@@ -51,7 +51,6 @@ class PoeDriver_microsemi_pd69200(object):
         # Wake up time delay after reset poe chip command: 300ms
         self._reset_poe_chip_delay = 0.3
 
-
     def _calc_msg_echo(self):
         self._echo += 1
         if (self._echo == 0xff):
@@ -123,14 +122,14 @@ class PoeDriver_microsemi_pd69200(object):
             try:
                 self._xmit(tx_msg, delay)
                 if retry>0:
-                    print("Send(retry): {0}".format(conv_byte_to_hex(tx_msg)))
+                    print_stderr("Send(retry): {0}".format(conv_byte_to_hex(tx_msg)))
                 rx_msg = self._recv()
                 self._check_rx_msg(rx_msg, tx_msg)
                 return rx_msg
             except Exception as e:
-                print("_communicate error: {0}".format(str(e)))
-                print("Send: {0}".format(conv_byte_to_hex(tx_msg)))
-                print("Recv: {0}".format(conv_byte_to_hex(rx_msg)))
+                print_stderr("_communicate error: {0}".format(str(e)))
+                print_stderr("Send: {0}".format(conv_byte_to_hex(tx_msg)))
+                print_stderr("Recv: {0}".format(conv_byte_to_hex(rx_msg)))
                 rx_msg = self._recv()
                 # Wait 0.5s to clear up I2C buffer
                 time.sleep(self._clear_bus_buffer_delay)
