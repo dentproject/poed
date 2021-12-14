@@ -19,6 +19,7 @@ import sys
 import os
 from collections import OrderedDict
 from poe_common import *
+from poe_common import print_stderr
 from poe_driver_pd69200_def import *
 
 class PoeCommExclusiveLock(object):
@@ -122,7 +123,7 @@ class PoeDriver_microsemi_pd69200(object):
             try:
                 self._xmit(tx_msg, delay)
                 if retry>0:
-                    print_stderr("Send(retry): {0}".format(conv_byte_to_hex(tx_msg)))
+                    print_stderr("Send(retry: {0}): {1}".format(retry,conv_byte_to_hex(tx_msg)))
                 rx_msg = self._recv()
                 self._check_rx_msg(rx_msg, tx_msg)
                 return rx_msg
@@ -268,7 +269,8 @@ class PoeDriver_microsemi_pd69200(object):
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_GLOBAL,
                    POE_PD69200_MSG_SUB1_TEMP_MATRIX]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_active_matrix(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -276,7 +278,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB_CHANNEL,
                    POE_PD69200_MSG_SUB1_CH_MATRIX,
                    logic_port]
-        return self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_ACTIVE_MATRIX)
 
     def set_port_enDis(self, logic_port, EnDis):
         command = [POE_PD69200_MSG_KEY_COMMAND,
@@ -533,6 +536,8 @@ class PoeMsgParser(object):
     MSG_BT_PORT_PARAMETERS = 13
     MSG_BT_SYSTEM_STATUS = 14
     MSG_BT_PORT_CLASS = 15
+    MSG_ACTIVE_MATRIX = 16
+    MSG_CMD_STATUS = 255
 
     def _to_word(self, byteH, byteL):
         return (byteH << 8 | byteL) & 0xffff
@@ -692,6 +697,20 @@ class PoeMsgParser(object):
         }
         return parsed_data
 
+    def _parse_cmd_status(self, msg):
+        parsed_data = {
+            CMD_EXECUTE_RESULT: conv_byte_to_hex([msg[POE_PD69200_MSG_OFFSET_SUB], msg[POE_PD69200_MSG_OFFSET_SUB1]]),
+        }
+        return parsed_data
+
+    def _parse_active_matrix(self, msg):
+        parsed_data = {
+            ACTIVE_MATRIX_PHYA: msg[POE_PD69200_MSG_OFFSET_SUB],
+            ACTIVE_MATRIX_PHYB: msg[POE_PD69200_MSG_OFFSET_SUB1],
+
+        }
+        return parsed_data
+
     def parse(self, msg, msg_type):
         if msg_type == self.MSG_PORT_POWER_LIMIT:
             return self._parse_port_power_limit(msg)
@@ -723,6 +742,10 @@ class PoeMsgParser(object):
             return self._parse_bt_system_status(msg)
         elif msg_type == self.MSG_BT_PORT_MEASUREMENTS:
             return self._parse_bt_port_measurements(msg)
+        elif msg_type == self.MSG_ACTIVE_MATRIX:
+            return self._parse_active_matrix(msg)
+        elif msg_type == self.MSG_CMD_STATUS:
+            return self._parse_cmd_status(msg)
         return {}
 
 class poePort(object):

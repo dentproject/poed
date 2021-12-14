@@ -80,6 +80,10 @@ LAST_SAVE_TIME = "file_save_time"
 LAST_SET_TIME  = "last_poe_set_time"
 OPERATION_MODE = "operation_mode"
 MEASURED_CLASS = "measured_class"
+CMD_EXECUTE_RESULT = "CMD_EXECUTE_RESULT"
+ACTIVE_MATRIX_PHYA = "ACTIVE_MATRIX_A"
+ACTIVE_MATRIX_PHYB = "ACTIVE_MATRIX_B"
+
 
 # IPC EVENT
 POE_IPC_EVT    = "/run/poe_ipc_event"
@@ -227,3 +231,26 @@ def conv_byte_to_hex(byte_in):
     hex_string = "".join("%02x," % b for b in byte_in)
     hex_string = hex_string+"[EOF]"
     return hex_string
+
+def fast_temp_matrix_compare(def_matrix,plat_obj):
+    get_phya = None
+    get_phyb = None
+    if len(def_matrix[0]) == 3:
+        print_stderr("Select 4-Pair mode")
+        four_pair = True
+    else:
+        print_stderr("Select 2-Pair mode")
+        four_pair = False
+    for def_mat_pair in def_matrix:
+        idx = def_mat_pair[0]
+        get_phya = plat_obj.get_active_matrix(idx)[ACTIVE_MATRIX_PHYA]
+        if get_phya != def_mat_pair[1]:
+            print_stderr("Port map mismatch, run program global matrix")
+            return False
+        if four_pair == True:
+            get_phyb = plat_obj.get_active_matrix(idx)[ACTIVE_MATRIX_PHYB]
+            if get_phyb != def_mat_pair[2]:
+                print_stderr("Port map mismatch, run program global matrix")
+                return False
+    print_stderr("Port map match, skip program global matrix")
+    return True

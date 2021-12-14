@@ -1,5 +1,6 @@
 from poe_driver_pd69200_def import *
 from poe_common import *
+from poe_common import print_stderr
 from smbus2 import SMBus, i2c_msg
 
 import os
@@ -73,23 +74,31 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
     def bus_unlock(self):
         fcntl.flock(self._bus().fd, fcntl.LOCK_UN)
 
-    def init_poe(self):
-        # Set Temporary Matrix
-        for (logic_port, phy_port_a, phy_port_b) in self._default_matrix:
-            self.set_bt_temp_matrix(logic_port, phy_port_a, phy_port_b)
+    def init_poe(self, config_in=None):
+        # Clean buffers to reduce retry time
+        self.plat_poe_read()
 
-        self.program_active_matrix()
+        # Fast compare active and temp matrix
+        if fast_temp_matrix_compare(self._default_matrix, self) == False:
+            prog_global_matrix = True
+        else:
+            prog_global_matrix = False
 
-        # Disable all ports first
-        for port_id in range(self.total_poe_port()):
-            self.set_bt_port_enDis(port_id, 0)
+        # Set Temporary Matrix and
+        for temp_matrix_mapping in self._default_matrix:
+            logic_port = temp_matrix_mapping[0]
+            phy_porta = temp_matrix_mapping[1]
+            phy_portb = temp_matrix_mapping[2]
+            if (config_in == None or config_in == False):
+                # Disable all ports
+                self.set_port_enDis(logic_port, 0)
+
+            if prog_global_matrix == True:
+                # Use 4-pair mode, assign phy_portb from _default_matrix
+                self.set_temp_matrix(logic_port, phy_porta, phy_portb)
 
         # Set Power Bank
         self.set_power_bank(1, 520)
-
-        # Enable all ports
-        for port_id in range(self.total_poe_port()):
-            self.set_bt_port_enDis(port_id, 1)
 
         #set opration mode
         for port_id in range(self.total_poe_port()):
@@ -98,8 +107,11 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
             else:
                 self.set_bt_port_operation_mode(port_id, 0x1)
 
-        # Save POE System Settings
-        self.save_system_settings()
+        if prog_global_matrix == True:
+            print_stderr("Program active matrix, all ports will shutdown a while")
+            self.program_active_matrix()
+            print_stderr("Program active matrix completed, save platform settings")
+            self.save_system_settings()
 
     def bank_to_psu_str(self, bank):
         powerSrc = "None"

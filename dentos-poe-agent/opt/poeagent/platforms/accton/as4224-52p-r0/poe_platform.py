@@ -1,5 +1,6 @@
 from poe_driver_pd69200_def import *
 from poe_common import *
+from poe_common import print_stderr
 from smbus2 import SMBus, i2c_msg
 
 import os
@@ -66,34 +67,43 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
     def bus_unlock(self):
         fcntl.flock(self._bus().fd, fcntl.LOCK_UN)
 
-    def init_poe(self):
-        # Set Temporary Matrix
-        for (logic_port, phy_port) in self._default_matrix:
-            self.set_temp_matrix(logic_port, phy_port)
-        self.program_active_matrix()
+    def init_poe(self, config_in=None):
+        # Clean buffers to reduce retry time
+        self.plat_poe_read()
 
-        # Disable all ports first
-        for port_id in range(self.total_poe_port()):
-            self.set_port_enDis(port_id, 0)
+        # Fast compare active and temp matrix
+        if fast_temp_matrix_compare(self._default_matrix, self) == False:
+            prog_global_matrix = True
+        else:
+            prog_global_matrix = False
+
+        # Set Temporary Matrix and
+        for temp_matrix_mapping in self._default_matrix:
+            logic_port = temp_matrix_mapping[0]
+            phy_porta = temp_matrix_mapping[1]
+            if (config_in == None or config_in == False):
+                # Disable all ports
+                self.set_port_enDis(logic_port, 0)
+                # Set default ports power limit
+                self.set_port_power_limit(
+                    logic_port, self._port_power_limit)
+
+            if prog_global_matrix == True:
+                self.set_temp_matrix(logic_port, phy_porta)
 
         # Set Power Bank
         self.set_power_bank(1, 800)
 
-        # Set Port Power Limit
-        for (logic_port, phy_port) in self._default_matrix:
-            self.set_port_power_limit(logic_port, self._port_power_limit)
-
         # Set POE Power Management Method
         self.set_pm_method(POE_PD69200_MSG_DATA_PM1_DYNAMIC,
-                           POE_PD69200_MSG_DATA_PM2_PPL,
-                           POE_PD69200_MSG_DATA_PM3_NO_COND)
+                        POE_PD69200_MSG_DATA_PM2_PPL,
+                        POE_PD69200_MSG_DATA_PM3_NO_COND)
 
-        # Enable all ports
-        for port_id in range(self.total_poe_port()):
-            self.set_port_enDis(port_id, 1)
-
-        # Save POE System Settings
-        self.save_system_settings()
+        if prog_global_matrix == True:
+            print_stderr("Program active matrix, all ports will shutdown a while")
+            self.program_active_matrix()
+            print_stderr("Program active matrix completed, save platform settings")
+            self.save_system_settings()
 
     def bank_to_psu_str(self, bank):
         powerSrc = "None"
