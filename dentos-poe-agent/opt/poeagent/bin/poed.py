@@ -307,21 +307,27 @@ class PoeAgent(object):
     @PoeAccessExclusiveLock
     def flush_settings_to_chip(self, poe_cfg):
         try:
+            set_result = False
             data = poe_cfg.load()
             all_port_configs = data[PORT_CONFIGS]
             last_save_time = data[TIMESTAMP][LAST_SAVE_TIME]
             for params in all_port_configs:
                 port_id = params.get(PORT_ID) - 1
                 poe_port = self.poe_plat.get_poe_port(port_id)
-                poe_port.set_all_params(params)
+                set_result = set_result|poe_port.set_all_params(params)
             self.all_port_state = all_port_configs
             self.last_poe_set_time = self.get_current_time()
             self.last_cfg_save_time = last_save_time
-            return True
+            return set_result
         except Exception as e:
             self.log.warn("Flush settings to chip failed, exception: {0}".format(str(e)))
             return False
 
+
+    def failsafe_mode(self):
+        self.log.warn("Entering fail safe mode(All port disabled).")
+        for idx in range(self.poe_plat.total_poe_port()):
+            self.poe_plat.set_port_enDis(idx, 0)
 
     def load_poe_cfg(self, poe_cfg):
         retry = 0
@@ -403,6 +409,7 @@ def main(argv):
                     else:
                         pa.log.info(
                             "Failed to restore port configurations from \"%s\"." % poe_cfg.path())
+                        pa.failsafe_mode()
                 else:
                     pa.log.info("Failed to initialize platform PoE settings!")
 
