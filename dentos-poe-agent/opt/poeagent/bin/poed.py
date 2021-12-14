@@ -106,11 +106,14 @@ class PoeConfig(object):
         return False
 
     def load(self):
-        with open(self.path(), 'r') as f:
-            read_buf = f.read()
-            if len(read_buf) > 1:
-                return json.loads(read_buf)
-        return None
+        try:
+            with open(self.path(), 'r') as f:
+                read_buf = f.read()
+                if len(read_buf) > 1:
+                    return json.loads(read_buf)
+            return None
+        except Exception as e:
+            raise RuntimeError("Load json failed: {0}".format(str(e)))
 
 class PoeAgent(object):
     UNIX_START_TIME = "1970/01/01 0:0:0"
@@ -214,9 +217,9 @@ class PoeAgent(object):
             raise e
 
     @PoeAccessExclusiveLock
-    def apply_platform_defaults(self):
+    def init_platform(self,cfg_data=None):
         try:
-            self.poe_plat.init_poe()
+            self.poe_plat.init_poe(cfg_data)
             self.update_set_time()
             return True
         except Exception as e:
@@ -302,17 +305,23 @@ class PoeAgent(object):
                 time.sleep(1)
 
     @PoeAccessExclusiveLock
-    def apply_cfg_settings(self, poe_cfg):
-        data = poe_cfg.load()
-        all_port_configs = data[PORT_CONFIGS]
-        last_save_time = data[TIMESTAMP][LAST_SAVE_TIME]
-        for params in all_port_configs:
-            port_id = params.get(PORT_ID) - 1
-            poe_port = self.poe_plat.get_poe_port(port_id)
-            poe_port.set_all_params(params)
-        self.all_port_state = all_port_configs
-        self.last_poe_set_time = self.get_current_time()
-        self.last_cfg_save_time = last_save_time
+    def flush_settings_to_chip(self, poe_cfg):
+        try:
+            data = poe_cfg.load()
+            all_port_configs = data[PORT_CONFIGS]
+            last_save_time = data[TIMESTAMP][LAST_SAVE_TIME]
+            for params in all_port_configs:
+                port_id = params.get(PORT_ID) - 1
+                poe_port = self.poe_plat.get_poe_port(port_id)
+                poe_port.set_all_params(params)
+            self.all_port_state = all_port_configs
+            self.last_poe_set_time = self.get_current_time()
+            self.last_cfg_save_time = last_save_time
+            return True
+        except Exception as e:
+            self.log.warn("Flush settings to chip failed, exception: {0}".format(str(e)))
+            return False
+
 
     def load_poe_cfg(self, poe_cfg):
         retry = 0
@@ -321,8 +330,7 @@ class PoeAgent(object):
                 if poe_cfg.is_valid() == False:
                     self.log.warn("Invalid cfg data to load!")
                     return False
-                self.apply_cfg_settings(poe_cfg)
-                return True
+                return self.flush_settings_to_chip(poe_cfg)
             except Exception as e:
                 self.log.err("An exception to load cfg (%s): %s, retry = %s" %
                              (poe_cfg.path(), str(e), str(retry)))
@@ -380,31 +388,45 @@ def main(argv):
     pa = PoeAgent()
     if pa.plat_supported:
         touch_file(POED_BUSY_FLAG)
-        if pa.apply_platform_defaults() == True:
-            pa.log.info("Success to apply platform PoE settings!")
-        else:
-            pa.log.info("Failed to apply platform PoE settings!")
 
-        poe_cfg = pa.permanent_cfg
-        if is_warm_boot and pa.runtime_cfg.is_valid():
-            poe_cfg = pa.runtime_cfg
-        pa.log.info("Configure PoE ports from \"%s\"" % poe_cfg.path())
-        touch_file(POED_BUSY_FLAG)
-        if pa.load_poe_cfg(poe_cfg) == True:
-            pa.log.info("Success to restore port configurations from \"%s\"." % poe_cfg.path())
-        else:
-            pa.log.warn("Failed to restore port configurations from \"%s\"." % poe_cfg.path())
-            if Path(pa.permanent_cfg.path()).exists() == False:
-                pa.log.info(
-                    "Presistant config file loss, reconstruct \"%s\" config from poe chip runtime setting." % poe_cfg.path())
-                cfg_data = pa.collect_running_state()
-                if pa.save_poe_cfg(pa.runtime_cfg, cfg_data) == True:
-                    copyfile(pa.runtime_cfg.path(),
-                             pa.permanent_cfg.path())
+        try:
+            poe_cfg = pa.permanent_cfg
+            if is_warm_boot and pa.runtime_cfg.is_valid():
+                poe_cfg = pa.runtime_cfg
+            pa.log.info("Configure PoE ports from \"%s\"" % poe_cfg.path())
+            if poe_cfg.is_valid() == True:
+                if pa.init_platform(True) == True:
+                    pa.log.info("Success to initialize platform PoE settings!")
+                    if pa.load_poe_cfg(poe_cfg)== True:
+                        pa.log.info(
+                            "Success to restore port configurations from \"%s\"." % poe_cfg.path())
+                    else:
+                        pa.log.info(
+                            "Failed to restore port configurations from \"%s\"." % poe_cfg.path())
+                else:
+                    pa.log.info("Failed to initialize platform PoE settings!")
+
+
             else:
-                pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+                if pa.init_platform(False) == True:
+                    pa.log.info("Success to initialize platform PoE settings(Platform default)!")
+                    if Path(pa.runtime_cfg.path()).exists() == False:
+                        pa.log.info(
+                            "Runtime config file loss, reconstruct \"%s\" config from poe chip runtime setting." % pa.runtime_cfg.path())
+                        cfg_data = pa.collect_running_state()
+                        if pa.save_poe_cfg(pa.runtime_cfg, cfg_data) == True:
+                            pa.log.info("Runtime config reconstruct completed.")
+                    else:
+                        pa.log.warn("Runtime config broken, please reboot machine to cleanup.")
+                        pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+                else:
+                    pa.log.info("Failed to initialize platform PoE settings!")
+            # Start Autosave thread
+            pa.autosave_thread.start()
+        except Exception as e:
+            pa.log.warn("Load config failed: {0}".format(str(e)))
+            poed_exit(ret_code=-2)
 
-        pa.autosave_thread.start()
 
 
         remove_file(POED_BUSY_FLAG)
@@ -468,19 +490,22 @@ def main(argv):
             except Exception as e:
                 pa.log.err("An exception to listen poe set event: %s, skipped."
                            % str(e))
+                poed_exit(ret_code=-3)
     else:
         while thread_flag is True:
             time.sleep(1)
 
-def poed_exit(sig=0, frame=None):
+def poed_exit(sig=0, frame=None,ret_code=0):
     global thread_flag
     remove_file(POED_BUSY_FLAG)
     thread_flag = False
-    exit(0)
+    exit(ret_code)
 
 if __name__ == "__main__":
     try:
         signal.signal(signal.SIGTERM, poed_exit)
         main(sys.argv)
+    except Exception as e:
+        print_stderr("Main Exception: {0}".format(str(e)))
     finally:
         poed_exit()
