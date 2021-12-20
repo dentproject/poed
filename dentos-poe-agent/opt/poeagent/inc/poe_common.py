@@ -19,6 +19,7 @@ import sys
 import time
 import syslog
 import fcntl
+import traceback
 from pathlib import Path
 
 # POE Driver Attributes
@@ -80,10 +81,9 @@ LAST_SAVE_TIME = "file_save_time"
 LAST_SET_TIME  = "last_poe_set_time"
 OPERATION_MODE = "operation_mode"
 MEASURED_CLASS = "measured_class"
-CMD_EXECUTE_RESULT = "CMD_EXECUTE_RESULT"
 ACTIVE_MATRIX_PHYA = "ACTIVE_MATRIX_A"
 ACTIVE_MATRIX_PHYB = "ACTIVE_MATRIX_B"
-
+CMD_RESULT_RET = "ret"
 
 # IPC EVENT
 POE_IPC_EVT    = "/run/poe_ipc_event"
@@ -178,8 +178,17 @@ def PoeAccessExclusiveLock(func):
                     func.__name__))
                 res = func(*args, **kwargs)
             except Exception as e:
+                error_class = e.__class__.__name__
+                detail = e.args[0]
+                cl, exc, tb = sys.exc_info()
+                lastCallStack = traceback.extract_tb(tb)[-1]
+                fileName = lastCallStack[0]
+                lineNum = lastCallStack[1]
+                funcName = lastCallStack[2]
+                errMsg = "File \"{}\", line {}, in {}: [{}] {}".format(
+                    fileName, lineNum, funcName, error_class, detail)
                 print_stderr("[{0}]Locked but execution failed: {1}".format(
-                    func.__name__, str(e)))
+                    func.__name__, str(errMsg)))
             finally:
                 fcntl.flock(fd, fcntl.LOCK_UN)
         return res
@@ -254,3 +263,31 @@ def fast_temp_matrix_compare(def_matrix,plat_obj):
                 return False
     print_stderr("Port map match, skip program global matrix")
     return True
+
+
+def check_init_plat_ret_result(init_poe_result, sum_mode=0):
+    all_ret = []
+    sum_result = 0
+    for name in init_poe_result:
+        if type(init_poe_result[name]) is dict:
+            if CMD_RESULT_RET in init_poe_result[name]:
+                all_ret.append((name, init_poe_result[name][CMD_RESULT_RET]))
+            else:
+                all_ret += (name, check_init_plat_ret_result(init_poe_result[name], sum_mode+1))
+
+        elif type(init_poe_result[name]) is list:
+            for itm in init_poe_result[name]:
+                all_ret += (name,check_init_plat_ret_result(itm, sum_mode+1))
+        elif type(name) is int:
+            all_ret.append(name)
+            if sum_mode == 0:
+                sum_result += name
+        elif name == CMD_RESULT_RET:
+            all_ret.append(init_poe_result[name])
+
+    for itm_result in all_ret:
+        if type(itm_result) is tuple:
+            sum_result += itm_result[1]
+        elif type(itm_result) is int:
+            sum_result += itm_result
+    return (all_ret, sum_result)

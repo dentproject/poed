@@ -1,3 +1,5 @@
+
+from collections import OrderedDict
 from poe_driver_pd69200_def import *
 from poe_common import *
 from poe_common import print_stderr
@@ -39,6 +41,7 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._max_shutdown_vol = 0x0249 # 58.5 V
         self._min_shutdown_vol = 0x01E0 # 48.0 V
         self._guard_band = 0x0A
+        self._default_power_banks = [(1, 520)]
 
         #add read 15byte first as init chip
         self._i2c_read(self._bus())
@@ -75,6 +78,7 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         fcntl.flock(self._bus().fd, fcntl.LOCK_UN)
 
     def init_poe(self, config_in=None):
+        ret_item = OrderedDict()
         # Clean buffers to reduce retry time
         self.plat_poe_read()
 
@@ -84,34 +88,82 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         else:
             prog_global_matrix = False
 
+        # Port result list
+        set_port_item = dict()
+        # Default values
+        set_port_item["set_port_params"] = []
+        set_port_item["set_temp_matrix"] = []
+        ret_item["set_power_bank"] = []
+        ret_item["set_op_mode"] = []
+        result_prog_matrix = None
+        result_save_sys = None
+
+
+        # Create default parameter (Disable, low priority)
+        default_param = dict({
+            ENDIS: "disable",
+            PRIORITY: "low",
+        })
+
         # Set Temporary Matrix and
         for temp_matrix_mapping in self._default_matrix:
             logic_port = temp_matrix_mapping[0]
             phy_porta = temp_matrix_mapping[1]
             phy_portb = temp_matrix_mapping[2]
-            if (config_in == None or config_in == False):
-                # Disable all ports
-                self.set_port_enDis(logic_port, 0)
+            if config_in == None:
+                port = self.get_poe_port(logic_port)
+                result = port.set_all_params(default_param)
+                set_port_item["set_port_params"].append({
+                        "idx": logic_port,
+                        CMD_RESULT_RET: result
+                })
+            elif config_in == True:
+                # Preserve current state
+                pass
 
             if prog_global_matrix == True:
-                # Use 4-pair mode, assign phy_portb from _default_matrix
-                self.set_temp_matrix(logic_port, phy_porta, phy_portb)
+                result = self.set_temp_matrix(logic_port, phy_porta, phy_portb)
+                set_port_item["set_temp_matrix"].append({
+                    "idx": logic_port,
+                    CMD_RESULT_RET: result
+                })
+        ret_item["set_port_item"] = set_port_item
 
         # Set Power Bank
-        self.set_power_bank(1, 520)
+        for _power_bank in self._default_power_banks:
+            (bank, power_limit) = _power_bank
+            result = self.set_power_bank(bank, power_limit)
+            ret_item["set_power_bank"].append({
+                "setting": _power_bank,
+                CMD_RESULT_RET: result
+            })
 
-        #set opration mode
+        # Set opration mode
         for port_id in range(self.total_poe_port()):
             if port_id <= 15:
-                self.set_bt_port_operation_mode(port_id, 0x9)
+                result = self.set_bt_port_operation_mode(port_id, 0x9)
             else:
-                self.set_bt_port_operation_mode(port_id, 0x1)
+                result = self.set_bt_port_operation_mode(port_id, 0x1)
+            ret_item["set_op_mode"].append({
+                "idx": port_id,
+                CMD_RESULT_RET: result
+            })
+
 
         if prog_global_matrix == True:
-            print_stderr("Program active matrix, all ports will shutdown a while")
-            self.program_active_matrix()
-            print_stderr("Program active matrix completed, save platform settings")
-            self.save_system_settings()
+            print_stderr(
+                "Program active matrix, all ports will shutdown a while")
+            result_prog_matrix = self.program_active_matrix()
+            print_stderr(
+                "Program active matrix completed, save platform settings to chip")
+            result_save_sys = self.save_system_settings()
+            ret_item["program_active_matrix"] = {
+                CMD_RESULT_RET: result_prog_matrix
+            }
+            ret_item["save_system_settings"] = {
+                CMD_RESULT_RET: result_save_sys
+            }
+        return ret_item
 
     def bank_to_psu_str(self, bank):
         powerSrc = "None"
