@@ -30,6 +30,7 @@ import time
 import json
 import fcntl
 import binascii
+import traceback
 
 bootcmd_path   = "/proc/cmdline"
 pa_root_path   = os.getcwd() + "/../"
@@ -83,20 +84,34 @@ class PoeConfig(object):
     def is_increasing_time_sequence(self, t1, t2):
         tDelta = datetime.strptime(t2, TIME_FMT) - \
                  datetime.strptime(t1, TIME_FMT)
-        return (tDelta.days > 0 or tDelta.seconds > 0) and \
-               (tDelta.days * tDelta.seconds) >= 0
-
+        result1 =(tDelta.days > 0 or tDelta.seconds > 0)
+        result2 =(tDelta.days * tDelta.seconds) >= 0
+        # print_stderr("is_increasing_time_sequence(self, t1, t2): result1={0},result2={1} ".format(str(result1),
+        #   str(result2)))
+        return result1 and result2
     def is_valid_timestamp(self, timestamp):
         last_save_time = timestamp[LAST_SAVE_TIME]
         last_set_time = timestamp[LAST_SET_TIME]
-        return self.is_increasing_time_sequence(last_set_time, last_save_time)
+        result_is_increasing_time_sequence = self.is_increasing_time_sequence(str(last_set_time), str(last_save_time))
+        # print_stderr(
+        # "is_valid_timestamp(self, timestamp): result_is_increasing_time_sequence={0}".format(str(result_is_increasing_time_sequence)))
+        return result_is_increasing_time_sequence
 
     def is_valid_data(self, data):
-        return self.is_valid_gen_info(data[GEN_INFO]) and \
-               self.is_valid_timestamp(data[TIMESTAMP])
+        result_is_valid_gen_info =self.is_valid_gen_info(data[GEN_INFO])
+        result_is_valid_timestamp =self.is_valid_timestamp(data[TIMESTAMP])
+        # print_stderr("is_valid_data(self, data): result_is_valid_gen_info={0},result_is_valid_timestamp={1}".format(str(result_is_valid_gen_info),str(result_is_valid_timestamp)))
+        return result_is_valid_gen_info and result_is_valid_timestamp
+
 
     def is_valid(self):
-        return self.is_exist() and self.is_valid_data(self.load())
+        result_is_exist = self.is_exist()
+        result_is_valid_data = False
+        if result_is_exist:
+            result_is_valid_data = self.is_valid_data(self.load())
+        # print_stderr("is_valid(self): result_is_exist={0},result_is_valid_data={1}".format(str(result_is_exist),
+        #   str(result_is_valid_data)))
+        return result_is_exist and result_is_valid_data
 
     def save(self, data):
         json_data = json.dumps(data, indent = 4)
@@ -144,6 +159,7 @@ class PoeAgent(object):
         self.fail_counter = 0
         self.autosave_intvl = 1
         self.autosave_thread = threading.Thread(target=self.autosave_main)
+        self.failsafe_flag=False
 
     # Get platform model from boot cmd
     def platform_model(self, file_path=bootcmd_path):
@@ -218,12 +234,24 @@ class PoeAgent(object):
 
     @PoeAccessExclusiveLock
     def init_platform(self,cfg_data=None):
+        result = dict({})
+        all_result=None
         try:
-            self.poe_plat.init_poe(cfg_data)
+            result = self.poe_plat.init_poe(cfg_data)
+            all_result = check_init_plat_ret_result(result)
+            if all_result[1]==0:
+                self.log.info("init_poe all_result: {0}".format(str(all_result[1])))
+            else:
+                self.log.info("init_poe all_result(some command failed): {0}".format(str(all_result)))
+                return False
+
+
             self.update_set_time()
             return True
         except Exception as e:
-            self.log.err("An exception when initializing poe chip: %s" % str(e))
+            self.log.err(
+                "An exception when initializing poe chip: %s" % str(e))
+            self.log.info("init_poe all_result: {0}".format(str(all_result)))
             return False
 
     def collect_general_info(self):
@@ -263,7 +291,7 @@ class PoeAgent(object):
             self.log.err("Failed to collect running state!")
             return None
 
-    def save_poe_cfg(self, poe_cfg, cfg_data):
+    def save_poe_cfg(self, poe_cfg, cfg_data=None):
         try:
             if poe_cfg.is_valid_data(cfg_data) == False:
                 self.log.warn("Get invalid cfg data to save!")
@@ -285,17 +313,24 @@ class PoeAgent(object):
 
     def autosave_main(self):
         global thread_flag
+        self.log.info("Start autosave thread")
         self.rt_counter = 0
         self.fail_counter = 0
         while thread_flag is True:
             try:
                 if self.rt_counter >= self.cfg_update_intvl_rt:
                     cfg_data = self.collect_running_state()
-                    if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
-                        self.rt_counter = 0
+                    if self.failsafe_flag == False:
+                        if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
+                            self.rt_counter = 0
+                        else:
+                            self.log.warn(
+                                "Failed to save cfg data in autosave routine!")
                     else:
                         self.log.warn(
-                            "Failed to save cfg data in autosave routine!")
+                            "POE Agent in failsafe mode, stop saving runtime cfg")
+                        self.rt_counter = 0
+
                 self.rt_counter += self.autosave_intvl
                 time.sleep(self.autosave_intvl)
             except Exception as e:
@@ -306,26 +341,46 @@ class PoeAgent(object):
 
     @PoeAccessExclusiveLock
     def flush_settings_to_chip(self, poe_cfg):
+        # Read all port enDis status
+        all_port_endis = self.poe_plat.get_all_ports_enDis()
         try:
-            set_result = False
+            ret_result = True
             data = poe_cfg.load()
             all_port_configs = data[PORT_CONFIGS]
             last_save_time = data[TIMESTAMP][LAST_SAVE_TIME]
             for params in all_port_configs:
                 port_id = params.get(PORT_ID) - 1
                 poe_port = self.poe_plat.get_poe_port(port_id)
-                set_result = set_result|poe_port.set_all_params(params)
+                set_result = poe_port.set_all_params(
+                    params,  current_enDis=all_port_endis)
+                if set_result[ENDIS] != 0 or set_result[PRIORITY] != 0 or set_result[POWER_LIMIT] != 0:
+                    self.log.warn("Port[{0}] setting failed: {1}".format(
+                        str(params.get(PORT_ID)), json.dumps(set_result)))
+                    ret_result=False
+
             self.all_port_state = all_port_configs
             self.last_poe_set_time = self.get_current_time()
             self.last_cfg_save_time = last_save_time
-            return set_result
+            return ret_result
         except Exception as e:
-            self.log.warn("Flush settings to chip failed, exception: {0}".format(str(e)))
+            error_class = e.__class__.__name__
+            detail = e.args[0]
+            cl, exc, tb = sys.exc_info()
+            lastCallStack = traceback.extract_tb(
+                tb)[-1]
+            fileName = lastCallStack[0]
+            lineNum = lastCallStack[1]
+            funcName = lastCallStack[2]
+            errMsg = "File \"{}\", line {}, in {}: [{}] {}".format(
+                fileName, lineNum, funcName, error_class, detail)
+            self.log.warn(
+                "Flush settings to chip failed, exception: {0}".format(str(errMsg)))
             return False
 
 
     def failsafe_mode(self):
         self.log.warn("Entering fail safe mode(All port disabled).")
+        self.failsafe_flag = True
         for idx in range(self.poe_plat.total_poe_port()):
             self.poe_plat.set_port_enDis(idx, 0)
 
@@ -394,7 +449,6 @@ def main(argv):
     pa = PoeAgent()
     if pa.plat_supported:
         touch_file(POED_BUSY_FLAG)
-
         try:
             poe_cfg = pa.permanent_cfg
             if is_warm_boot and pa.runtime_cfg.is_valid():
@@ -412,11 +466,11 @@ def main(argv):
                         pa.failsafe_mode()
                 else:
                     pa.log.info("Failed to initialize platform PoE settings!")
-
-
+                    pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+                    pa.failsafe_mode()
             else:
                 if pa.init_platform(False) == True:
-                    pa.log.info("Success to initialize platform PoE settings(Platform default)!")
+                    pa.log.info("Success to initialize platform PoE settings!")
                     if Path(pa.runtime_cfg.path()).exists() == False:
                         pa.log.info(
                             "Runtime config file loss, reconstruct \"%s\" config from poe chip runtime setting." % pa.runtime_cfg.path())
@@ -424,18 +478,19 @@ def main(argv):
                         if pa.save_poe_cfg(pa.runtime_cfg, cfg_data) == True:
                             pa.log.info("Runtime config reconstruct completed.")
                     else:
-                        pa.log.warn("Runtime config broken, please reboot machine to cleanup.")
+                        pa.log.warn(
+                            "Runtime config broken, please check: \"%s\"" % pa.runtime_cfg.path())
                         pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+                        pa.failsafe_mode()
                 else:
                     pa.log.info("Failed to initialize platform PoE settings!")
+                    pa.set_poe_agent_state(PoeAgentState.UNCLEAN_START)
+                    pa.failsafe_mode()
             # Start Autosave thread
             pa.autosave_thread.start()
         except Exception as e:
             pa.log.warn("Load config failed: {0}".format(str(e)))
             poed_exit(ret_code=-2)
-
-
-
         remove_file(POED_BUSY_FLAG)
         pa.create_poe_set_ipc()
         while thread_flag is True:
@@ -487,8 +542,6 @@ def main(argv):
                                         result = pa.load_poe_cfg(temp_cfg)
                                     if result == True:
                                         pa.update_set_time()
-
-
                                 break
                         else:
                             pa.log.notice("Receive data: %s, skipped!" % data)

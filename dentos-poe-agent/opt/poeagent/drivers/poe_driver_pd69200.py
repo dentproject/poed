@@ -17,6 +17,7 @@ limitations under the License.
 import time
 import sys
 import os
+import json
 from collections import OrderedDict
 from poe_common import *
 from poe_common import print_stderr
@@ -37,7 +38,8 @@ class PoeCommExclusiveLock(object):
         return wrap_comm
 
 class PoeDriver_microsemi_pd69200(object):
-    _last_send_key=None
+    _last_send_key = None
+
     def __init__(self):
         self._echo = 0x00
         self._4wire_bt = 0
@@ -122,8 +124,8 @@ class PoeDriver_microsemi_pd69200(object):
         while retry < POE_PD69200_COMM_RETRY_TIMES:
             try:
                 self._xmit(tx_msg, delay)
-                if retry>0:
-                    print_stderr("Send(retry: {0}): {1}".format(retry,conv_byte_to_hex(tx_msg)))
+                if retry > 0:
+                    print_stderr("Send(retry: {0}): {1}".format(retry, conv_byte_to_hex(tx_msg)))
                 rx_msg = self._recv()
                 self._check_rx_msg(rx_msg, tx_msg)
                 return rx_msg
@@ -158,27 +160,31 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_RESET,
                    0x00,
                    POE_PD69200_MSG_SUB1_RESET]
-        self._run_communication_protocol(command, self._reset_poe_chip_delay)
+        return self._run_communication_protocol(command, self._reset_poe_chip_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def restore_factory_default(self):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_RESOTRE_FACT]
-        self._run_communication_protocol(command, self._restore_factory_default_delay)
+        return self._run_communication_protocol(command, self._restore_factory_default_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def save_system_settings(self):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_E2,
                    POE_PD69200_MSG_SUB1_SAVE_CONFIG]
-        self._run_communication_protocol(command, self._save_sys_delay)
+        return self._run_communication_protocol(command, self._save_sys_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def set_user_byte_to_save(self, user_val):
         command = [POE_PD69200_MSG_KEY_PROGRAM,
                    self._calc_msg_echo(),
                    POE_PD69200_MSG_SUB_USER_BYTE,
                    user_val]
-        self._run_communication_protocol(command, self._save_sys_delay)
+        return self._run_communication_protocol(command, self._save_sys_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     # System status function
     def set_system_status(self, priv_label):
@@ -187,7 +193,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB_GLOBAL,
                    POE_PD69200_MSG_SUB1_SYSTEM_STATUS,
                    priv_label]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_system_status(self):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -203,7 +210,7 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB_GLOBAL,
                    POE_PD69200_BT_MSG_SUB1_SYSTEM_STATUS]
         return self._run_communication_protocol(command, self._msg_delay,
-                                                    PoeMsgParser.MSG_BT_SYSTEM_STATUS)
+                                                PoeMsgParser.MSG_BT_SYSTEM_STATUS)
 
     def set_individual_mask(self, mask_num, enDis):
         command = [POE_PD69200_MSG_KEY_COMMAND,
@@ -212,7 +219,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_INDV_MSK,
                    mask_num,
                    enDis]
-        return self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_individual_mask(self, mask_num):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -246,15 +254,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB_CHANNEL,
                    POE_PD69200_MSG_SUB1_TEMP_MATRIX,
                    logic_port, phy_port_a, phy_port_b]
-        self._run_communication_protocol(command, self._msg_delay)
-
-    def set_bt_temp_matrix(self, logic_port, phy_port_a, phy_port_b):
-        command = [POE_PD69200_MSG_KEY_COMMAND,
-                   self._calc_msg_echo(),
-                   POE_PD69200_MSG_SUB_CHANNEL,
-                   POE_PD69200_MSG_SUB1_TEMP_MATRIX,
-                   logic_port, phy_port_a, phy_port_b]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_temp_matrix(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -289,7 +290,8 @@ class PoeDriver_microsemi_pd69200(object):
                    logic_port,
                    POE_PD69200_MSG_DATA_CMD_ENDIS_ONLY | EnDis,
                    POE_PD69200_MSG_DATA_PORT_TYPE_AT]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def set_bt_port_enDis(self, logic_port, EnDis):
         command = [POE_PD69200_MSG_KEY_COMMAND,
@@ -302,7 +304,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_BT_MSG_DATA_PORT_OP_MODE_NO_CHANGE,
                    POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
                    POE_PD69200_BT_MSG_DATA_PORT_PRIORITY_NO_CHANGE]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_all_ports_enDis(self):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -323,7 +326,8 @@ class PoeDriver_microsemi_pd69200(object):
                    logic_port,
                    power_limit >> 8,
                    power_limit & 0xff]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_port_power_limit(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -341,7 +345,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_PRIORITY,
                    logic_port,
                    priority]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def set_bt_port_priority(self, logic_port, priority):
         command = [POE_PD69200_MSG_KEY_COMMAND,
@@ -354,7 +359,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_BT_MSG_DATA_PORT_OP_MODE_NO_CHANGE,
                    POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
                    priority]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_port_priority(self, logic_port):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -381,7 +387,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB1_SUPPLY,
                    POE_PD69200_MSG_SUB2_PWR_MANAGE_MODE,
                    pm1, pm2, pm3]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_pm_method(self):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -406,15 +413,13 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_MSG_SUB_GLOBAL,
                    POE_PD69200_MSG_SUB1_SUPPLY,
                    POE_PD69200_MSG_SUB2_PWR_BUDGET,
-                   bank,
-                   power_limit >> 8,
-                   power_limit & 0xff,
-                   self._max_shutdown_vol >> 8,
-                   self._max_shutdown_vol & 0xff,
-                   self._min_shutdown_vol >> 8,
-                   self._min_shutdown_vol & 0xff,
-                   self._guard_band]
-        self._run_communication_protocol(command, self._msg_delay)
+                   bank, ]
+        command += [x for x in int(power_limit).to_bytes(2, byteorder="big")]
+        command += [x for x in int(self._max_shutdown_vol).to_bytes(2,byteorder="big")]
+        command += [x for x in int(self._min_shutdown_vol).to_bytes(2,byteorder="big")]
+        command.append(self._guard_band)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
 
     def get_power_bank(self, bank):
         command = [POE_PD69200_MSG_KEY_REQUEST,
@@ -450,7 +455,8 @@ class PoeDriver_microsemi_pd69200(object):
                    POE_PD69200_BT_MSG_SUB1_PORTS_MEASUREMENT,
                    logic_port]
         return self._run_communication_protocol(command, self._msg_delay,
-                                            PoeMsgParser.MSG_BT_PORT_MEASUREMENTS)
+                                                PoeMsgParser.MSG_BT_PORT_MEASUREMENTS)
+
     def get_poe_device_parameters(self, csnum):
         command = [POE_PD69200_MSG_KEY_REQUEST,
                    self._calc_msg_echo(),
@@ -518,7 +524,9 @@ class PoeDriver_microsemi_pd69200(object):
                    mode,
                    POE_PD69200_BT_MSG_DATA_PORT_MODE_POWER_SAME,
                    POE_PD69200_BT_MSG_DATA_PORT_PRIORITY_NO_CHANGE]
-        self._run_communication_protocol(command, self._msg_delay)
+        return self._run_communication_protocol(command, self._msg_delay,
+                                                PoeMsgParser.MSG_CMD_STATUS)
+
 
 class PoeMsgParser(object):
     MSG_PORT_POWER_LIMIT = 1
@@ -684,7 +692,7 @@ class PoeMsgParser(object):
         parsed_data = {
             PROD_NUM: msg[POE_PD69200_MSG_OFFSET_SUB2],
             SW_VERSION: self._to_word(msg[POE_PD69200_MSG_OFFSET_DATA5],
-                                  msg[POE_PD69200_MSG_OFFSET_DATA6])
+                                      msg[POE_PD69200_MSG_OFFSET_DATA6])
         }
         return parsed_data
 
@@ -698,9 +706,8 @@ class PoeMsgParser(object):
         return parsed_data
 
     def _parse_cmd_status(self, msg):
-        parsed_data = {
-            CMD_EXECUTE_RESULT: conv_byte_to_hex([msg[POE_PD69200_MSG_OFFSET_SUB], msg[POE_PD69200_MSG_OFFSET_SUB1]]),
-        }
+        parsed_data = int.from_bytes(bytes(
+            [msg[POE_PD69200_MSG_OFFSET_SUB], msg[POE_PD69200_MSG_OFFSET_SUB1]]), byteorder='big')
         return parsed_data
 
     def _parse_active_matrix(self, msg):
@@ -849,66 +856,83 @@ class poePort(object):
 
         return port_status
 
-    def set_enDis(self, set_val):
-        set_flag = False
-        if self._4wire_bt == 1:
-            status = self.poe_plat.get_bt_port_parameters(self.port_id)
-            cur_val = status.get(ENDIS)
-            if cur_val != set_val:
-                self.poe_plat.set_bt_port_enDis(self.port_id, set_val)
-                set_flag = True
+    def set_enDis(self, set_val, current_enDis=None, check_Readback=False):
+        ret_flag = 0
+        result_get = set_val
+        if current_enDis != None and ENDIS in current_enDis and \
+            self.port_id <= (len(current_enDis[ENDIS])-1) and \
+                current_enDis[ENDIS][self.port_id] == set_val:
+            # print_stderr(
+            #     "current_enDis[{0}] match: get: {1}/set: {2}, skip.".format(str(self.port_id), str(current_enDis[ENDIS][self.port_id]), str(set_val)))
+            return ret_flag
         else:
-            status = self.poe_plat.get_port_status(self.port_id)
-            cur_val = status.get(ENDIS)
-            if cur_val != set_val:
-                self.poe_plat.set_port_enDis(self.port_id, set_val)
-                set_flag = True
-        return set_flag
+            if self._4wire_bt == 1:
+                result = self.poe_plat.set_bt_port_enDis(self.port_id, set_val)
+                if check_Readback:
+                    result_get = self.poe_plat.get_bt_port_parameters(self.port_id).get(ENDIS)
+                if result == 0 or result_get == set_val:
+                    ret_flag = result
+            else:
+                result = self.poe_plat.set_port_enDis(self.port_id, set_val)
+                if check_Readback:
+                    result_get = self.poe_plat.get_port_status(
+                        self.port_id).get(ENDIS)
+                if result == 0 or result_get == set_val:
+                    ret_flag = result
 
-    def set_powerLimit(self, set_val):
-        set_flag = False
+            return ret_flag
+
+    def set_powerLimit(self, set_val, check_Readback=False):
+        ret_flag = 0
+        result_get = set_val
         if self._4wire_bt == 1:
             raise RuntimeError("Not support on BT firmware")
         else:
-            power_limit = self.poe_plat.get_port_power_limit(self.port_id)
-            cur_val = power_limit.get(PPL)
-            if cur_val != set_val:
-                self.poe_plat.set_port_power_limit(self.port_id, set_val)
-                set_flag = True
-        return set_flag
+            result = self.poe_plat.set_port_power_limit(self.port_id, set_val)
+            if check_Readback:
+                result_get = self.poe_plat.get_port_power_limit(
+                    self.port_id).get(PPL)
+            if result == 0 or result_get == set_val:
+                ret_flag = result
+        return ret_flag
 
-    def set_priority(self, set_val):
-        set_flag = False
+    def set_priority(self, set_val, check_Readback=False):
+        ret_flag = 0
+        result_get = set_val
         if self._4wire_bt == 1:
-            priority = self.poe_plat.get_bt_port_parameters(self.port_id)
-            cur_val = priority.get(PRIORITY)
-            if cur_val != set_val:
-                self.poe_plat.set_bt_port_priority(self.port_id, set_val)
-                set_flag = True
+            result = self.poe_plat.set_bt_port_priority(self.port_id, set_val)
+            if check_Readback:
+                result_get = self.poe_plat.get_bt_port_parameters(
+                    self.port_id).get(PRIORITY)
+            if result == 0 or result_get == set_val:
+                ret_flag = result
         else:
-            priority = self.poe_plat.get_port_priority(self.port_id)
-            cur_val = priority.get(PRIORITY)
-            if cur_val != set_val:
-                self.poe_plat.set_port_priority(self.port_id, set_val)
-                set_flag = True
-        return set_flag
+            result = self.poe_plat.set_port_priority(self.port_id, set_val)
+            if check_Readback:
+                result_get = self.poe_plat.get_port_priority(
+                    self.port_id).get(PRIORITY)
+            if result == 0 or result_get == set_val:
+                ret_flag = result
+        return ret_flag
 
-    def set_all_params(self, params):
-        set_flag = False
+    def set_all_params(self, params, current_enDis=None, check_Readback=False):
+        ret_flag = dict({})
+
         if ENDIS in params:
             set_val = TBL_ENDIS_TO_DRV[params[ENDIS]]
-            set_flag |= self.set_enDis(set_val)
-
-        if self._4wire_bt != 1:
-            if POWER_LIMIT in params:
-                set_val = params[POWER_LIMIT]
-                set_flag |= self.set_powerLimit(set_val)
+            ret_flag[ENDIS] = self.set_enDis(
+                set_val, current_enDis, check_Readback)
 
         if PRIORITY in params:
             set_val = TBL_PRIORITY_TO_DRV[params[PRIORITY]]
-            set_flag |= self.set_priority(set_val)
+            ret_flag[PRIORITY] = self.set_priority(set_val, check_Readback)
 
-        return set_flag
+        if POWER_LIMIT in params and self._4wire_bt != 1:
+            set_val = params[POWER_LIMIT]
+            ret_flag[POWER_LIMIT] = self.set_powerLimit(
+                set_val, check_Readback)
+
+        return ret_flag
 
 class poeSystem(object):
     def __init__(self, poe_plat):
@@ -1001,7 +1025,7 @@ class poeSystem(object):
             system_status[TEMP_DISCO] = self.temp_disco
             system_status[TEMP_ALARM] = self.temp_alarm
             system_status[INTR_REG] = self.intr_reg
-            #only on BT
+            # only on BT
             system_status[NVM_USER_BYTE] = self.nvm_user_byte
             system_status[FOUND_DEVICE] = self.found_device
             system_status[EVENT_EXIST] = self.event_exist
