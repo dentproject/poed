@@ -118,9 +118,11 @@ class PoeDriver_microsemi_pd69200(object):
                 rx_msg[POE_PD69200_MSG_OFFSET_CSUM_L] != csum[1]):
             raise RuntimeError("Invalid checksum in POE Rx message")
 
+
     @PoeCommExclusiveLock()
     def _communicate(self, tx_msg, delay):
         retry = 0
+        ex="Unknown"
         while retry < POE_PD69200_COMM_RETRY_TIMES:
             try:
                 self._xmit(tx_msg, delay)
@@ -130,15 +132,20 @@ class PoeDriver_microsemi_pd69200(object):
                 self._check_rx_msg(rx_msg, tx_msg)
                 return rx_msg
             except Exception as e:
+                ex = e
                 print_stderr("_communicate error: {0}".format(str(e)))
                 print_stderr("Send: {0}".format(conv_byte_to_hex(tx_msg)))
                 print_stderr("Recv: {0}".format(conv_byte_to_hex(rx_msg)))
                 rx_msg = self._recv()
+                # Increment echo byte
+                command = tx_msg[0:POE_PD69200_MSG_OFFSET_DATA12]
+                command[POE_PD69200_MSG_OFFSET_ECHO] = self._calc_msg_echo()
+                tx_msg = self._build_tx_msg(command)
                 # Wait 0.5s to clear up I2C buffer
                 time.sleep(self._clear_bus_buffer_delay)
                 retry += 1
         raise RuntimeError(
-            "Problems in running poe communication protocol - %s" % str(e))
+            "Problems in running poe communication protocol: {0}".format(str(ex)))
 
     def _run_communication_protocol(self, command, delay, msg_type=None):
         tx_msg = self._build_tx_msg(command)
@@ -244,8 +251,10 @@ class PoeDriver_microsemi_pd69200(object):
         poe_ver = self.get_poe_versions()
         major_ver = int(poe_ver.split('.')[1])
         if major_ver >= min_major_ver:
+            self._4wire_bt = 1
             return 1
         else:
+            self._4wire_bt = 0
             return 0
 
     def set_temp_matrix(self, logic_port, phy_port_a, phy_port_b=0xFF):

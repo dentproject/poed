@@ -239,20 +239,21 @@ class PoeAgent(object):
         try:
             result = self.poe_plat.init_poe(cfg_data)
             all_result = check_init_plat_ret_result(result)
-            if all_result[1]==0:
-                self.log.info("init_poe all_result: {0}".format(str(all_result[1])))
+            if all_result[1] == 0:
+                self.log.info(
+                    "init_poe all_result: {0}".format(str(all_result[1])))
             else:
-                self.log.info("init_poe all_result(some command failed): {0}".format(str(all_result)))
+                self.log.info(
+                    "init_poe all_result(some command failed): {0}".format(str(all_result)))
                 return False
-
 
             self.update_set_time()
             return True
         except Exception as e:
             self.log.err(
-                "An exception when initializing poe chip: %s" % str(e))
-            self.log.info("init_poe all_result: {0}".format(str(all_result)))
+                "An exception when initializing poe chip: {0}".format(str(e)))
             return False
+
 
     def collect_general_info(self):
         gen_info = OrderedDict()
@@ -341,9 +342,9 @@ class PoeAgent(object):
 
     @PoeAccessExclusiveLock
     def flush_settings_to_chip(self, poe_cfg):
-        # Read all port enDis status
-        all_port_endis = self.poe_plat.get_all_ports_enDis()
         try:
+            # Read all port enDis status
+            all_port_endis = self.poe_plat.get_all_ports_enDis()
             ret_result = True
             data = poe_cfg.load()
             all_port_configs = data[PORT_CONFIGS]
@@ -353,7 +354,9 @@ class PoeAgent(object):
                 poe_port = self.poe_plat.get_poe_port(port_id)
                 set_result = poe_port.set_all_params(
                     params,  current_enDis=all_port_endis)
-                if set_result[ENDIS] != 0 or set_result[PRIORITY] != 0 or set_result[POWER_LIMIT] != 0:
+                if (set_result[ENDIS] != 0
+                        or set_result[PRIORITY] != 0
+                        or (self.poe_plat._4wire_bt == 0 and set_result[POWER_LIMIT] != 0)):
                     self.log.warn("Port[{0}] setting failed: {1}".format(
                         str(params.get(PORT_ID)), json.dumps(set_result)))
                     ret_result=False
