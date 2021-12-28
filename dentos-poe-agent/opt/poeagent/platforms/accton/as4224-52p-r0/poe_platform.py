@@ -22,11 +22,14 @@ class PoePlatform_accton_as4224_52p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
 
+        # Add read 15byte first to cleanup buffer
+        self.plat_poe_read()
+
         # item in matrix: (logic port, phy port)
         self._default_matrix = [
             # locgic port
             ( 0,  7), ( 1,  4), ( 2,  5), ( 3,  6), ( 4,  0), ( 5,  1), ( 6,  2), ( 7,  3),
-            ( 8, 12), ( 9, 13), (10,  14), (11,  15), (12, 9), (13, 10), (14, 11), (15, 8),
+            ( 8, 12), ( 9, 13), (10, 14), (11,  15), (12, 9), (13, 10), (14, 11), (15,  8),
             (16, 20), (17, 21), (18, 22), (19, 23), (20, 17), (21, 18), (22, 19), (23, 16),
             (24, 28), (25, 29), (26, 30), (27, 31), (28, 27), (29, 26), (30, 25), (31, 24),
             (32, 39), (33, 36), (34, 37), (35, 38), (36, 32), (37, 33), (38, 34), (39, 35),

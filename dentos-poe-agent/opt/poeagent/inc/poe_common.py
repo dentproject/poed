@@ -160,8 +160,11 @@ def PoeAccessExclusiveLock(func):
         while retry > 0:
             try:
                 fcntl.flock(fd, fcntl.LOCK_EX)
-                print_stderr("[{0}]Locked, retry: {1}".format(
-                    func.__name__, str(retry)))
+
+
+                if retry < EXLOCK_RETRY:
+                    print_stderr("[{0}]Locked, retry: {1}".format(
+                        func.__name__, str(retry)))
                 LOCKED = True
                 break
             except Exception as e:
@@ -174,8 +177,9 @@ def PoeAccessExclusiveLock(func):
                     return res
         if LOCKED:
             try:
-                print_stderr("[{0}]Locked execution code".format(
-                    func.__name__))
+                if retry < EXLOCK_RETRY:
+                    print_stderr("[{0}]Locked execution code".format(
+                        func.__name__))
                 res = func(*args, **kwargs)
             except Exception as e:
                 error_class = e.__class__.__name__

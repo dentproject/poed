@@ -36,6 +36,10 @@ class PoePlatform_delta_tn48m_poe(PoeDrv.PoeDriver_microsemi_pd69200):
         self._i2c_bus = 1
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
+
+        # Add read 15byte first to cleanup buffer
+        self.plat_poe_read()
+
         # Time between commands (from hw spec): 30ms
         self._msg_delay = 0.03
         # Wait time after saving system setting: 50ms

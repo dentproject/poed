@@ -22,6 +22,8 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._i2c_bus = 1
         self._i2c_addr = 0x3C
         self._poe_bus = SMBus(self._i2c_bus)
+        # Add read 15byte first to cleanup buffer
+        self.plat_poe_read()
         self._4wire_bt = self.support_4wire_bt(3)
         # item in matrix: (logic port, phy port a,  phy port b)
         self._default_matrix = [
@@ -42,9 +44,6 @@ class PoePlatform_accton_as4564_26p(PoeDrv.PoeDriver_microsemi_pd69200):
         self._min_shutdown_vol = 0x01E0 # 48.0 V
         self._guard_band = 0x0A
         self._default_power_banks = [(1, 520)]
-
-        #add read 15byte first as init chip
-        self._i2c_read(self._bus())
 
     def total_poe_port(self):
         return self._total_poe_port
