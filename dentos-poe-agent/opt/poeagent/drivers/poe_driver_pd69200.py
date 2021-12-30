@@ -137,6 +137,7 @@ class PoeDriver_microsemi_pd69200(object):
                 print_stderr("Send: {0}".format(conv_byte_to_hex(tx_msg)))
                 print_stderr("Recv: {0}".format(conv_byte_to_hex(rx_msg)))
                 rx_msg = self._recv()
+                print_stderr("Recv(clean buffer): {0}".format(conv_byte_to_hex(rx_msg)))
                 # Increment echo byte
                 command = tx_msg[0:POE_PD69200_MSG_OFFSET_DATA12]
                 command[POE_PD69200_MSG_OFFSET_ECHO] = self._calc_msg_echo()
@@ -317,12 +318,17 @@ class PoeDriver_microsemi_pd69200(object):
                                                 PoeMsgParser.MSG_CMD_STATUS)
 
     def get_all_ports_enDis(self):
-        command = [POE_PD69200_MSG_KEY_REQUEST,
-                   self._calc_msg_echo(),
-                   POE_PD69200_MSG_SUB_GLOBAL,
-                   POE_PD69200_MSG_SUB1_EN_DIS]
-        return self._run_communication_protocol(command, self._msg_delay,
-                                                PoeMsgParser.MSG_ALL_PORTS_ENDIS)
+        # Only support AT/AF Protocol, to speedup setting flow
+        if self._4wire_bt == 0:
+            command = [POE_PD69200_MSG_KEY_REQUEST,
+                    self._calc_msg_echo(),
+                    POE_PD69200_MSG_SUB_GLOBAL,
+                    POE_PD69200_MSG_SUB1_EN_DIS]
+            return self._run_communication_protocol(command, self._msg_delay,
+                                                    PoeMsgParser.MSG_ALL_PORTS_ENDIS)
+        else:
+            # Skip Get All port command
+            return None
 
     all_ports_enDis = property(get_all_ports_enDis, None)
 
