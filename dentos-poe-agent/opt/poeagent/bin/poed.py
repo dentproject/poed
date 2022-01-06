@@ -562,7 +562,8 @@ def poed_exit(sig=0, frame=None,ret_code=0):
     global thread_flag
     remove_file(POED_BUSY_FLAG)
     thread_flag = False
-    exit(ret_code)
+    print_stderr("exitcode={0}".format(ret_code))
+    sys.exit(ret_code)
 
 if __name__ == "__main__":
     try:
@@ -570,5 +571,5 @@ if __name__ == "__main__":
         main(sys.argv)
     except Exception as e:
         print_stderr("Main Exception: {0}".format(str(e)))
-    finally:
-        poed_exit()
+
+    poed_exit()
