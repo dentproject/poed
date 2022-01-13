@@ -122,7 +122,7 @@ class PoeCLI(object):
         show_parser.add_argument("-d", "--debug", action="store_true",
                                  help="Show more Information for debugging\n")
         show_parser.add_argument("-j", "--json", action="store_true",
-                                 help="Dump showing information to JSON file\n")
+                                 help="Display information in JSON format\n")
         show_group = show_parser.add_mutually_exclusive_group()
         show_group.add_argument("-p", "--ports", metavar="<val>", type=self.valid_ports,
                                 help="Show PoE Ports Information\n"
@@ -184,6 +184,9 @@ class PoeCLI(object):
                         "After restore factory default, it will initialize the port setting for the platform."
                         "The persistent config won't change until 'poecli cfg --save' issued.\n"
                         )
+        # CFG Sub Command
+        guide_parser = root_sub_parser.add_parser("guide", help="Show user guide",
+                                                formatter_class=argparse.RawTextHelpFormatter)
 
         return root_parser
 
@@ -467,6 +470,12 @@ def main(argv):
         if args.powerLimit is not None:
             set_flag |= poecli.set_ports_powerLimit(args.ports, args.powerLimit)
 
+    elif args.subcmd == "guide":
+        try:
+            with open(POE_USERGUIDE,'r') as f:
+                print_stderr(f.read())
+        except Exception as e:
+            print_stderr("Unadle to open "+POE_USERGUIDE)
     elif args.subcmd == "savechip":
         poecli.save_system_settings()
         set_flag = True
