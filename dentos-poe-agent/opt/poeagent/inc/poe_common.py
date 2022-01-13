@@ -90,6 +90,8 @@ POE_IPC_EVT    = "/run/poe_ipc_event"
 POECLI_SET     = "poecli_set"
 POECLI_CFG     = "poecli_cfg"
 
+# User guide
+POE_USERGUIDE = "/opt/poeagent/docs/Userguide"
 
 
 #POED CFG Predefine

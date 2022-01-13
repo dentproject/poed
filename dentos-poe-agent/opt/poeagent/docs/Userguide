@@ -1,0 +1,280 @@
+                        Introduction
+This document have two parts, Userguide shows guidline for command operations,
+and Troubleshooting for runtime problems handling.
+
+------------------------------------------------------------------
+                        User guide
+    This guide will introduce the poecli commands in detail
+------------------------------------------------------------------
+1. Sub commands help:
+    ~# poecli -h
+    usage: poecli.py [-h] Commands ...
+
+    positional arguments:
+    Commands            Descriptions
+        show              Show PoE information
+        set               Set PoE ports
+        savechip          This command saves the current user values into the non-
+                          volatile memory and these user valuesbecome the defaults
+                          after any reset. To change the default back to the
+                          initial factory values, use the Restore Factory Defaults
+                          cmd.(poecli restore_poe_system). The persistent config
+                          won't change until 'poecli cfg --save' issued.
+        cfg               CFG command, to manipulate the poe agent config files.
+        restore_poe_system
+                        This command restores modified values to POE chip
+                        factory default values that are part of the firmware
+                        release version.Ports will shut down after sending this
+                        command.After restore factory default, it will
+                        initialize the port setting for the platform.The
+                        persistent config won't change until 'poecli cfg --save'
+                        issued.
+
+    optional arguments:
+    -h, --help          show this help message and exit
+
+2.  Configuration file manipulation(Requires poe agent started):
+    2.1.    Disaply config sub command help:
+            ~# poecli cfg -h
+            usage: poecli.py cfg [-h] [-s] [-l] [-c <val>]
+
+                optional arguments:
+                -h, --help            show this help message and exit
+                -s, --save            Save current runtime settings to persistent file.
+                -l, --load            Load settings from persistent file.
+                -c <val>, --config <val>
+                                        Assign file path for save/load operation,
+                                        instead of persistent config, Example:
+                                        poecli cfg -s -c [Config Path]
+
+    2.2.    Create Persistent Config from current chip state (/etc/poe_agent/poe_perm_cfg.json):
+            ~# poecli cfg -s
+            cfg_action: poecli_cfg,save
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:03:37 localhost poed.py[1493]: INFO: Receive a cfg event from poecli!
+                Jan 11 14:03:37 localhost poed.py[1493]: INFO: CFG Action: save
+                Jan 11 14:03:37 localhost poed.py[1493]: INFO: CFG Save: Save runtime setting to persistent file
+
+    2.3.    Load Persistent Config (/etc/poe_agent/poe_perm_cfg.json):
+            ~# poecli cfg -l
+            cfg_action: poecli_cfg,load
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:08:49 localhost poed.py[1493]: INFO: Receive a cfg event from poecli!
+                Jan 11 14:08:49 localhost poed.py[1493]: INFO: CFG Action: load
+                Jan 11 14:08:49 localhost poed.py[1493]: INFO: CFG Load: Load persistent file
+
+
+    2.4.    Create Persistent Config from current chip state to a specified file(absolute path):
+            ~# poecli cfg -s -c /root/test.json
+            cfg_action: poecli_cfg,save,/root/test.json
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:08:09 localhost poed.py[1493]: INFO: Receive a cfg event from poecli!
+                Jan 11 14:08:09 localhost poed.py[1493]: INFO: CFG Action: save
+                Jan 11 14:08:09 localhost poed.py[1493]: INFO: CFG File: /root/test.json
+                Jan 11 14:08:09 localhost poed.py[1493]: INFO: CFG Save: Save runtime setting to /root/test.json
+
+    2.4.    Load Config file from a specified path (absolute path):
+            ~# poecli cfg -l -c /root/test.json
+            cfg_action: poecli_cfg,load,/root/test.json
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:11:36 localhost poed.py[1493]: INFO: Receive a cfg event from poecli!
+                Jan 11 14:11:36 localhost poed.py[1493]: INFO: CFG Action: load
+                Jan 11 14:11:36 localhost poed.py[1493]: INFO: CFG File: /root/test.json
+                Jan 11 14:11:36 localhost poed.py[1493]: INFO: CFG Load: Load cfg file from /root/test.json
+
+3. Set port parameters:
+    3.1.    Disaply set sub command help:
+            ~# poecli set -h
+            usage: poecli.py set [-h] -p <val> [-e <val>] [-l <val>] [-o <val>]
+
+            optional arguments:
+            -h, --help            show this help message and exit
+            -p <val>, --ports <val>
+                                    Logic ports
+                                    Example: 1,3-5,45-48
+            -e <val>, --enable <val>
+                                    Port Enable/Disable
+                                    disable = 0, enable = 1
+            -l <val>, --level <val>
+                                    Port Priority Level
+                                    crit = 1, high = 2, low = 3
+            -o <val>, --powerLimit <val>
+                                    Port Power Limit
+                                    range: 0x0 (mW) - 0xffff (mW)
+                                    This field will be ignored if val sets to 0xffff
+
+    3.2.    Set ports (Parameters):
+            Enable port:
+            ~# poecli set -p 1 -e 1
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:22:05 localhost poed.py[1493]: INFO: Receive a set event from poecli!
+
+    3.3.    Disable port in range:
+            ~# poecli set -p 1-48 -e 0
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:23:44 localhost poed.py[1493]: INFO: Receive a set event from poecli!
+
+    3.4.    Enable ports(some skipped) with power Limit and priority:
+            ~# poecli set -p 1,2,5,7 -e 1 -o 0x1fe0 -l 1
+
+            Check agent log (journalctl -u poed -n 10):
+                Jan 11 14:25:20 localhost poed.py[1493]: INFO: Receive a set event from poecli!
+
+    5.  Show infomation sub command:
+    5.1.    Display Show information help:
+            ~# poecli show -h
+            usage: poecli.py show [-h] [-d] [-j] [-p <val> | -s | -m | -a | -v]
+
+            optional arguments:
+            -h, --help            show this help message and exit
+            -d, --debug           Show more Information for debugging
+            -j, --json            Display information in JSON format
+            -p <val>, --ports <val>
+                                    Show PoE Ports Information
+                                    Example: 1,3-5,45-48
+            -s, --system          Show PoE System Information
+            -m, --mask            Show Individual mask registers
+            -a, --all             Show port, system, and individual masks Information
+            -v, --version         Show PoE versions
+
+    5.1.    Show port info:
+            ~# poecli show -p 1,2,5,7
+            Port  Status             En/Dis   Priority  Protocol        Class  PWR Consump  PWR Limit    Voltage    Current
+            ----  -----------------  -------  --------  --------------  -----  -----------  -----------  ---------  --------
+            1     Port On (0x01)     enable     crit    IEEE802.3AF/AT    4       500 (mW)    8100 (mW)   54.3 (V)    8 (mA)
+            2     Port Off (0x1B)    enable     crit    IEEE802.3AF/AT    0         0 (mW)    8100 (mW)    0.0 (V)    0 (mA)
+            5     Port Off (0x1B)    enable     crit    IEEE802.3AF/AT    0         0 (mW)    8100 (mW)    0.0 (V)    0 (mA)
+            7     Port Off (0x1B)    enable     crit    IEEE802.3AF/AT    0         0 (mW)    8100 (mW)    0.0 (V)    0 (mA)
+
+    5.2. Show system info:
+            ~# poecli show -s
+            ==============================
+            PoE System Information
+            ==============================
+            Total PoE Ports   : 48
+
+            Total Power       : 1500.0 W
+            Power Consumption : 0.0 W
+            Power Avaliable   : 1500.0 W
+
+            Power Bank #      : 15
+            Power Sources     : PSU1, PSU2
+
+    5.3. Show invidual mask:
+            ~# poecli show -m
+            ==================
+            Individual Masks
+            ==================
+            0x00: 1
+            .................(skip logs)
+            0x53: 0
+
+    5.4. Show all infomation:
+            ~# poecli show -a
+            (Will display above infomation at once)
+
+    5.5.    Show info in json format (for some other applications):
+            ~# poecli show -p 1 -j
+            {
+                "PORT_INFORMATION": [
+                    {
+                        "port_id": 1,
+                        "enDis": "enable",
+                        "priority": "crit",
+                        "power_limit": 8100,
+                        "status": "Port On (0x01)",
+                        "latch": 0,
+                        "protocol": "IEEE802.3AF/AT",
+                        "enable_4pair": 0,
+                        "class": "4",
+                        "power_consump": 500,
+                        "voltage": 54.3,
+                        "current": 10
+                    }
+                ]
+            }
+
+
+6.  Store curerent chip state to its NV-MEMORY (savechip):
+    ~# poecli savechip
+
+    Check agent log (journalctl -u poed -n 10):
+        Jan 11 14:41:29 localhost poed.py[1493]: INFO: Receive a set event from poecli!
+
+
+7.  Restore POE chip to factory default and apply platform default(restore_poe_system):
+    ~# poecli restore_poe_system
+    Select 2-Pair mode
+    Port map mismatch, run program global matrix
+    Program active matrix, all ports will shutdown a while
+    Program active matrix completed, save platform settings to chip
+    Success to restore factory default and take platform poe settings!
+    (Suggest restart poe agent or reboot):
+    ~# systemctl restart poed
+
+    Check agent log (journalctl -u poed -n 10):
+        Jan 11 14:45:33 localhost poed[25224]: SystemExit: 0
+        Jan 11 14:45:33 localhost systemd[1]: Stopped DentOS POE Agent.
+        Jan 11 14:45:33 localhost systemd[1]: Started DentOS POE Agent.
+        Jan 11 14:45:33 localhost poed.py[25248]: INFO: Configure PoE ports from "/run/poe_runtime_cfg.json"
+        Jan 11 14:45:33 localhost poed[25242]: Select 2-Pair mode
+        Jan 11 14:45:34 localhost poed[25242]: Port map match, skip program global matrix
+        Jan 11 14:45:35 localhost poed.py[25248]: INFO: init_poe all_result: 0
+        Jan 11 14:45:35 localhost poed.py[25248]: INFO: Success to initialize platform PoE settings!
+        Jan 11 14:45:41 localhost poed.py[25248]: INFO: Success to restore port configurations from "/run/poe_runtime_cfg.json".
+        Jan 11 14:45:41 localhost poed.py[25248]: INFO: Start autosave thread
+
+
+------------------------------------------------------
+        Troubleshooting for poed agent
+    Help to resolve code execute problem in runtime
+------------------------------------------------------
+1.  POE agent cannot Start(Config file issue):
+    Check agent log (journalctl -u poed -n 15):
+        Jan 11 14:58:40 localhost poed[25518]:     sys.exit(ret_code)
+        Jan 11 14:58:40 localhost poed[25518]: SystemExit: 0
+        Jan 11 14:58:40 localhost systemd[1]: Stopped DentOS POE Agent.
+        Jan 11 14:58:40 localhost systemd[1]: Started DentOS POE Agent.
+        Jan 11 14:58:40 localhost poed.py[25808]: WARN: Load config failed: 'NoneType' object is not subscriptable
+        Jan 11 14:58:40 localhost poed[25802]: exitcode=-2
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Main process exited, code=exited, status=254/n/a
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Unit entered failed state.
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Failed with result 'exit-code'.
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Service hold-off time over, scheduling restart.
+        Jan 11 14:58:40 localhost systemd[1]: Stopped DentOS POE Agent.
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Start request repeated too quickly.
+        Jan 11 14:58:40 localhost systemd[1]: Failed to start DentOS POE Agent.
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Unit entered failed state.
+        Jan 11 14:58:40 localhost systemd[1]: poed.service: Failed with result 'exit-code'.
+
+    1.1.    Check the persistent config file under "/etc/poe_agent/poe_perm_cfg.json" or runtime config
+            "/run/poe_runtime_cfg.json" format, must be legal JSON format, match the config rule and
+            non-zero size.
+
+    1.2.    If the configs are still not accepted by the poe agent, delete the configs or move to other path for backup. 
+            Restart agent and use "poecli cfg -s" to re-create by your need.
+
+    1.3.    Step-by-Step for bring poe agent back online:
+            ~# rm /etc/poe_agent/poe_perm_cfg.json /run/poe_runtime_cfg.json /run/poed.pid /run/poe_ipc_event
+            ~# systemctl restart poed
+            Check agent log (journalctl -u poed -n 15):
+                root@localhost:~# Jan 11 15:04:20 localhost systemd[1]: Started DentOS POE Agent.
+                Jan 11 15:04:20 localhost poed.py[26028]: INFO: Configure PoE ports from "/etc/poe_agent/poe_perm_cfg.json"
+                Jan 11 15:04:20 localhost poed[26022]: Select 2-Pair mode
+                Jan 11 15:04:22 localhost poed[26022]: Port map match, skip program global matrix
+                Jan 11 15:04:22 localhost poed.py[26028]: INFO: init_poe all_result: 0
+                Jan 11 15:04:22 localhost poed.py[26028]: INFO: Success to initialize platform PoE settings!
+                Jan 11 15:04:22 localhost poed.py[26028]: INFO: Runtime config file loss, reconstruct "/run/poe_runtime_cfg.json" config from poe chip runtime setting.
+                Jan 11 15:04:28 localhost poed.py[26028]: INFO: Runtime config reconstruct completed.
+                Jan 11 15:04:28 localhost poed.py[26028]: INFO: Start autosave thread
+
+            [Wait poe agent stable for 5~10s]
+            ~# poecli cfg -s
+            cfg_action: poecli_cfg,save
+
