@@ -21,6 +21,7 @@ from poe_version import *
 
 from pathlib import Path
 import os
+import stat
 import sys
 import errno
 import threading
@@ -82,13 +83,15 @@ class PoeConfig(object):
                self.is_valid_poe_cfg_ver(gen_info[POE_CFG_VER])
 
     def is_increasing_time_sequence(self, t1, t2):
-        tDelta = datetime.strptime(t2, TIME_FMT) - \
-                 datetime.strptime(t1, TIME_FMT)
-        result1 =(tDelta.days > 0 or tDelta.seconds > 0)
-        result2 =(tDelta.days * tDelta.seconds) >= 0
-        # print_stderr("is_increasing_time_sequence(self, t1, t2): result1={0},result2={1} ".format(str(result1),
-        #   str(result2)))
-        return result1 and result2
+        unixtime1 = time.mktime(datetime.strptime(t1, TIME_FMT).timetuple())
+        unixtime2 = time.mktime(datetime.strptime(t2, TIME_FMT).timetuple())
+        unixtime_diff = unixtime2-unixtime1
+        # print_stderr(
+        #     "unixtime diff: {0}-{1}={2}".format(unixtime2, unixtime1, (unixtime2-unixtime1)))
+        if unixtime_diff >=0:
+            return True
+        else:
+            return False
     def is_valid_timestamp(self, timestamp):
         last_save_time = timestamp[LAST_SAVE_TIME]
         last_set_time = timestamp[LAST_SET_TIME]
@@ -312,6 +315,7 @@ class PoeAgent(object):
             copyfile(self.runtime_cfg.path(),
                      self.permanent_cfg.path())
 
+
     def autosave_main(self):
         global thread_flag
         self.log.info("Start autosave thread")
@@ -320,6 +324,7 @@ class PoeAgent(object):
         while thread_flag is True:
             try:
                 if self.rt_counter >= self.cfg_update_intvl_rt:
+                    # print_stderr("Load chip state")
                     cfg_data = self.collect_running_state()
                     if self.failsafe_flag == False:
                         if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
@@ -414,10 +419,16 @@ class PoeAgent(object):
 
     def create_poe_set_ipc(self):
         try:
+            if Path(POE_IPC_EVT).exists() and stat.S_ISFIFO(os.stat(POE_IPC_EVT).st_mode) == False:
+                #Remove non-namedpipe file
+                remove_file(POE_IPC_EVT)
+        except:
+            pass
+        try:
             os.mkfifo(POE_IPC_EVT)
         except OSError as oe:
             if oe.errno != errno.EEXIST:
-                self.log.err("Failed to open named pipe: %s" % str(e))
+                self.log.err("Failed to open named pipe: %s" % str(oe))
 
 def get_prev_pid():
     return int(open(POED_PID_PATH, 'r').read())
@@ -504,10 +515,10 @@ def main(argv):
                         if data == POECLI_SET:
                             pa.update_set_time()
                             pa.log.info("Receive a set event from poecli!")
-                            if pa.rt_counter <pa.cfg_update_intvl_rt:
-                                pa.log.info("Reset rt_counter timing: {0}".format(
-                                    str(pa.cfg_update_intvl_rt)))
-                                pa.rt_counter = pa.cfg_update_intvl_rt
+                            # if pa.rt_counter <pa.cfg_update_intvl_rt:
+                            pa.log.info("Reset rt_counter timing: {0}".format(
+                                str(pa.cfg_update_intvl_rt-1)))
+                            pa.rt_counter = pa.cfg_update_intvl_rt-1
                             break
                         elif data == POECLI_CFG:
                             pa.log.info("Receive a cfg event from poecli!")
@@ -524,6 +535,15 @@ def main(argv):
                                         apply = data_list[3]
                                         pa.log.info("CFG Apply: {0}".format(apply))
                                 if action==POED_SAVE_ACTION:
+                                    touch_file(POED_BUSY_FLAG)
+                                    pa.rt_counter = 0
+                                    cfg_data = pa.collect_running_state()
+                                    if pa.save_poe_cfg(pa.runtime_cfg, cfg_data) == True:
+                                        pa.log.info(
+                                            "Load chip state to runtime completed.")
+                                    else:
+                                        pa.log.warn(
+                                            "Failed to save cfg data in autosave routine!")
                                     if file == None:
                                         pa.log.info(
                                             "CFG Save: Save runtime setting to persistent file")
@@ -533,16 +553,19 @@ def main(argv):
                                                  file)
                                         pa.log.info(
                                             "CFG Save: Save runtime setting to {0}".format(file))
-                                elif action==POED_LOAD_ACTION:
+                                    remove_file(POED_BUSY_FLAG)
+                                elif action == POED_LOAD_ACTION:
                                     if file == None:
                                         pa.log.info(
                                             "CFG Load: Load persistent file")
                                         result = pa.load_poe_cfg(pa.permanent_cfg)
+                                        remove_file(POED_BUSY_FLAG)
                                     else:
                                         pa.log.info(
                                             "CFG Load: Load cfg file from {0}".format(file))
                                         temp_cfg = PoeConfig(file, pa.plat_name)
                                         result = pa.load_poe_cfg(temp_cfg)
+                                        remove_file(POED_BUSY_FLAG)
                                     if result == True:
                                         pa.update_set_time()
                                 break

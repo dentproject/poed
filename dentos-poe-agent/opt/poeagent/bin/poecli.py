@@ -24,6 +24,7 @@ import re
 import imp
 import sys
 import subprocess
+import stat
 import os
 import argparse
 import time
@@ -422,8 +423,13 @@ class PoeCLI(object):
 
     def send_ipc_event(self, action=POECLI_SET):
         try:
-            with open(POE_IPC_EVT, "w") as f:
-                f.write(action)
+            if check_file(POE_IPC_EVT) == True:
+                if stat.S_ISFIFO(os.stat(POE_IPC_EVT).st_mode) == False:
+                    print_stderr(
+                        "Invalid IPC channel: {0}".format(POE_IPC_EVT))
+                    return
+                with open(POE_IPC_EVT, "w") as f:
+                    f.write(action)
         except Exception as e:
             pass
 
@@ -500,7 +506,15 @@ def main(argv):
     if set_flag == True and poed_alive == True:
         poecli.send_ipc_event()
     elif len(cfg_action)>0 and poed_alive == True:
+        touch_file(POED_BUSY_FLAG)
         poecli.send_ipc_event(cfg_action)
+        if wait_poed_busy(title="Wait cfg action", timeout=SAVE_FILE_TIMEOUT) == True:
+            print_stderr("done")
+        if check_file(POED_BUSY_FLAG):
+            remove_file(POED_BUSY_FLAG)
+
+
+
 
 if __name__ == '__main__':
     main(sys.argv)
