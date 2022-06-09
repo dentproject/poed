@@ -111,6 +111,7 @@ POED_PID_PATH   = "/run/poed.pid"
 POED_BUSY_FLAG = "/run/.poed_busy"
 POED_EXIT_FLAG = "/run/.poed_exit"
 FILEFLAG_RETRY = 5
+SAVE_FILE_TIMEOUT = 20
 
 def print_stderr(msg,end="\n",flush=True):
     sys.stderr.write(msg+end)
@@ -228,15 +229,17 @@ def check_file(file_path):
         return False
 
 
-def wait_poed_busy(timeout=FILEFLAG_RETRY):
+def wait_poed_busy(timeout=FILEFLAG_RETRY, title="poe agent busy"):
     ret = check_file(POED_BUSY_FLAG)
+    if ret == True:
+        print_stderr("\r"+title+".", end='')
     while ret == True:
         ret = check_file(POED_BUSY_FLAG)
-        print_stderr("\rpoe agent busy...")
         if timeout > 0:
+            print_stderr(".", end='')
             timeout -= 1
         else:
-            print_stderr("\r\rpoe agent busy...timeout")
+            print_stderr("timeout")
             return False
         time.sleep(1)
     return True
