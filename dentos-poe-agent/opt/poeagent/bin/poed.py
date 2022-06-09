@@ -40,6 +40,7 @@ plat_root_path = pa_root_path + "platforms"
 TIME_FMT       = "%Y/%m/%d %H:%M:%S"
 
 thread_flag    = True
+ipc_busy       = False
 
 class PoeAgentState(object):
     CLEAN_START = 0
@@ -318,32 +319,36 @@ class PoeAgent(object):
 
     def autosave_main(self):
         global thread_flag
+        global ipc_busy
         self.log.info("Start autosave thread")
         self.rt_counter = 0
         self.fail_counter = 0
         while thread_flag is True:
-            try:
-                if self.rt_counter >= self.cfg_update_intvl_rt:
-                    # print_stderr("Load chip state")
-                    cfg_data = self.collect_running_state()
-                    if self.failsafe_flag == False:
-                        if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
-                            self.rt_counter = 0
+            if ipc_busy == True:
+                time.sleep(self.autosave_intvl)
+            else:
+                try:
+                    if self.rt_counter >= self.cfg_update_intvl_rt:
+                        # print_stderr("Load chip state")
+                        cfg_data = self.collect_running_state()
+                        if self.failsafe_flag == False:
+                            if self.save_poe_cfg(self.runtime_cfg, cfg_data) == True:
+                                self.rt_counter = 0
+                            else:
+                                self.log.warn(
+                                    "Failed to save cfg data in autosave routine!")
                         else:
                             self.log.warn(
-                                "Failed to save cfg data in autosave routine!")
-                    else:
-                        self.log.warn(
-                            "POE Agent in failsafe mode, stop saving runtime cfg")
-                        self.rt_counter = 0
+                                "POE Agent in failsafe mode, stop saving runtime cfg")
+                            self.rt_counter = 0
 
-                self.rt_counter += self.autosave_intvl
-                time.sleep(self.autosave_intvl)
-            except Exception as e:
-                self.fail_counter += 1
-                self.log.err("An exception in autosave routine: %s, cnt: %d" %
-                             (str(e), self.fail_counter))
-                time.sleep(1)
+                    self.rt_counter += self.autosave_intvl
+                    time.sleep(self.autosave_intvl)
+                except Exception as e:
+                    self.fail_counter += 1
+                    self.log.err("An exception in autosave routine: %s, cnt: %d" %
+                                (str(e), self.fail_counter))
+                    time.sleep(1)
 
     @PoeAccessExclusiveLock
     def flush_settings_to_chip(self, poe_cfg):
@@ -446,6 +451,7 @@ def save_cur_pid():
 
 def main(argv):
     global thread_flag
+    global ipc_busy
     if os.geteuid() != 0:
         raise RuntimeError("Warning, poed service must be run as root!")
 
@@ -535,6 +541,7 @@ def main(argv):
                                         apply = data_list[3]
                                         pa.log.info("CFG Apply: {0}".format(apply))
                                 if action==POED_SAVE_ACTION:
+                                    ipc_busy=True
                                     touch_file(POED_BUSY_FLAG)
                                     pa.rt_counter = 0
                                     cfg_data = pa.collect_running_state()
@@ -554,7 +561,9 @@ def main(argv):
                                         pa.log.info(
                                             "CFG Save: Save runtime setting to {0}".format(file))
                                     remove_file(POED_BUSY_FLAG)
+                                    ipc_busy = False
                                 elif action == POED_LOAD_ACTION:
+                                    ipc_busy = True
                                     if file == None:
                                         pa.log.info(
                                             "CFG Load: Load persistent file")
@@ -568,6 +577,7 @@ def main(argv):
                                         remove_file(POED_BUSY_FLAG)
                                     if result == True:
                                         pa.update_set_time()
+                                    ipc_busy = False
                                 break
                         else:
                             pa.log.notice("Receive data: %s, skipped!" % data)
