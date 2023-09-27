@@ -21,7 +21,6 @@ from poe_version import *
 
 import binascii
 import re
-import imp
 import sys
 import subprocess
 import os
@@ -64,7 +63,7 @@ class PoeCLI(object):
             print_stderr("Failed to get platform path. err: %s" % str(e))
 
     def load_poe_platform(self):
-        plat_src = imp.load_source("poe_plat", self.platform_src_path())
+        plat_src = load_source("poe_plat", self.platform_src_path())
         poe_plat = plat_src.get_poe_platform()
         return poe_plat
 
