@@ -20,6 +20,7 @@ import time
 import syslog
 import fcntl
 import traceback
+import importlib.util
 from pathlib import Path
 
 # POE Driver Attributes
@@ -297,3 +298,13 @@ def check_init_plat_ret_result(init_poe_result, sum_mode=0):
         elif type(itm_result) is int:
             sum_result += itm_result
     return (all_ret, sum_result)
+
+def load_source(name, pathname):
+    module = None
+    spec = None
+
+    spec = importlib.util.spec_from_file_location(name, pathname)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    return module

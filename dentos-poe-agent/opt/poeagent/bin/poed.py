@@ -25,7 +25,6 @@ import sys
 import errno
 import threading
 import signal
-import imp
 import time
 import json
 import fcntl
@@ -184,7 +183,7 @@ class PoeAgent(object):
     def load_poe_plat(self):
         poe_plat = None
         try:
-            plat_src = imp.load_source("poe_plat", self.platform_src_path())
+            plat_src = load_source("poe_plat", self.platform_src_path())
             poe_plat = plat_src.get_poe_platform()
         except Exception as e:
             self.log.alert("Failed to load PoE platform. err: %s" % str(e))
