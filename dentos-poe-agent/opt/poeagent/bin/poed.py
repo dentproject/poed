@@ -183,11 +183,14 @@ class PoeAgent(object):
 
     def load_poe_plat(self):
         poe_plat = None
-        try:
-            plat_src = imp.load_source("poe_plat", self.platform_src_path())
-            poe_plat = plat_src.get_poe_platform()
-        except Exception as e:
-            self.log.alert("Failed to load PoE platform. err: %s" % str(e))
+        if os.path.exists(self.platform_src_path()):
+            try:
+                plat_src = imp.load_source("poe_plat", self.platform_src_path())
+                poe_plat = plat_src.get_poe_platform()
+            except Exception as e:
+                self.log.alert("Failed to load PoE platform. err: %s" % str(e))
+        else:
+            self.log.info("No PoE platform found, assuming no PoE support.")
         return poe_plat
 
     def is_valid_plat(self, poe_plat):

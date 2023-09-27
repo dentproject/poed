@@ -430,6 +430,9 @@ class PoeCLI(object):
 def main(argv):
     try:
         poecli = PoeCLI()
+    except FileNotFoundError as e:
+        print_stderr("This platform does not support PoE.")
+        os._exit(-10)
     except Exception as e:
         print_stderr("Failed to load poe platform! (%s)" % str(e))
         os._exit(-9)
