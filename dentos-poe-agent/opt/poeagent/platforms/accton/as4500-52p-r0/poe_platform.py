@@ -12,7 +12,7 @@ import fcntl
 import poe_multi_chip_driver_pd69200 as PoeDrv
 
 def get_poe_platform():
-    return PoePlatform_accton_as4560_52p()
+    return PoePlatform_accton_as4500_52p()
 
 def fast_temp_matrix_compare_multi_chip(def_matrix,plat_obj, chip_index=0):
     get_phya = None
@@ -44,7 +44,7 @@ def fast_temp_matrix_compare_multi_chip(def_matrix,plat_obj, chip_index=0):
     print_stderr("Port map match, skip program global matrix")
     return True
 
-class PoePlatform_accton_as4560_52p(PoeDrv.PoeDriver_microsemi_multi_chip_pd69200):
+class PoePlatform_accton_as4500_52p(PoeDrv.PoeDriver_microsemi_multi_chip_pd69200):
     def __init__(self):
         PoeDrv.PoeDriver_microsemi_multi_chip_pd69200.__init__(self)
         self.log = PoeLog()
