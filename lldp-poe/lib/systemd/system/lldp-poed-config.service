@@ -1,0 +1,11 @@
+[Unit]
+Description=DentOS LLDP POE config oneshot
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/lldp-poed-config
+RemainAfterExit=true
+
+[Install]
+WantedBy=multi-user.target

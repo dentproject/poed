@@ -1,0 +1,14 @@
+[Unit]
+Description=DentOS LLDP POE Agent
+After=syslog.service lldpd.service ntp.service lldp-poed-config.service
+Requires=lldp-poed-config.service
+ConditionPathExists=/var/run/lldp-poed-enable
+BindsTo=lldpd.service
+
+[Service]
+Type=simple
+Restart=always
+ExecStart=/usr/sbin/lldp-poed
+
+[Install]
+WantedBy=multi-user.target

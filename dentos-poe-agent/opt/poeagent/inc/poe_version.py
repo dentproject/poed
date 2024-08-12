@@ -1,5 +1,5 @@
 '''
-Copyright 2021 Delta Electronic Inc.
+Copyright Amazon Inc.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,5 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 '''
-POE_AGENT_VERSION  = "0.4.0-alpha"
-POE_CONFIG_VERSION = "1.1.0"
+
+POE_AGENT_VERSION = "0.7.0"
+POE_CONFIG_VERSION = "1.2.0"

@@ -20,7 +20,6 @@ import os
 import json
 from collections import OrderedDict
 from poe_common import *
-from poe_common import print_stderr
 from poe_driver_pd69200_def import *
 
 class PoeCommExclusiveLock(object):

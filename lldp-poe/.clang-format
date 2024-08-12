@@ -1,0 +1,12 @@
+# clang-format configuration file.
+#
+# For more information, see:
+#   https://clang.llvm.org/docs/ClangFormat.html
+#   https://clang.llvm.org/docs/ClangFormatStyleOptions.html
+BasedOnStyle: LLVM
+IndentWidth: 4
+BreakBeforeBraces: Linux
+AllowShortIfStatementsOnASingleLine: false
+IndentCaseLabels: false
+SpaceAfterCStyleCast: true
+SpaceBeforeSquareBrackets: false

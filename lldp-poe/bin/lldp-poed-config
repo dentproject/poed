@@ -1,0 +1,8 @@
+#!/bin/sh
+
+if ( test -f /etc/onl/platform && grep -q "arm64-accton-as4564-26p" /etc/onl/platform ); then
+    touch /var/run/lldp-poed-enable
+else
+    rm -f /var/run/lldp-poed-enable
+    echo "Disabling lldp-poed file flag since platform is not arm64-accton-as4564-26p-r0"
+fi

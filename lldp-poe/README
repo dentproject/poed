@@ -1,0 +1,11 @@
+# Port state machine and LLDP neighbor updates processing daemon - `lldp-poed`
+
+This agent is capable of holding each individual `swp` state for further
+dispatching commands to `poed` for setting the port power limit and
+querying dot3 port details. To better understand the flow transitions
+from `port_state_machine.c`, please refer to the following state machine diagram:
+
+![State machine diagram](./res/lldp_port_state_machine.png)
+
+The LLDP neighbor updates are send/received using `liblldpctl` in the `lldp_event_handler.c`.
+Incoming updates are sent to the state machine to be processed further.

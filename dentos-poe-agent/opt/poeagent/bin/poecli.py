@@ -14,494 +14,774 @@ See the License for the specific language governing permissions and
 limitations under the License.
 '''
 
-from poe_common import *
-from datetime import datetime, date
-from time import sleep
-from poe_version import *
-
-import binascii
-import re
-import imp
-import sys
-import subprocess
-import os
 import argparse
-import time
-import collections
+import errno
+import getpass
 import json
-import pathlib
+import os
+import re
+import sys
+from argparse import ArgumentParser
+from enum import Enum
+from typing import NoReturn, OrderedDict
 
-bootcmd_path   = "/proc/cmdline"
-pa_root_path   = os.getcwd() + "/../"
-plat_root_path = pa_root_path + "platforms"
+import grpc
+import poed_ipc_pb2
+import poed_ipc_pb2_grpc
+from agent_constants import AgentConstants
+from poe_common import *
+from poe_log import PoeLog
 
-PORTLIST_VALIDATION1 = "^([1-9]{0,1}[0-9]{1})-([1-9]{0,1}[0-9]{1})$"
-PORTLIST_VALIDATION2 = "^([1-9]{0,1}[0-9]{1})$"
+
 class PoeCLI(object):
-    TIME_FMT = "%Y/%m/%d %H:%M:%S"
+    """poecli implementation
+    The PoE CLI is used by the user to apply direct changes to the PoE chipset.
+    Additionally, the user can also trigger a manual save or load action
+    for the config through the poed daemon by running -c --save or -c --load.
+    All ports will be initially enabled to support LLDP negotiation.
+    For disabling this behavior, please refer to the 'set --lldp'
+    argument.
+    To configure the default power limit that can be assigned for each PoE
+    power class, refer to the 'set --default-limit' argument.
 
-    def __init__(self):
-        self.log = PoeLog()
-        self.poe_plat = self.load_poe_platform()
+    Note: synchronized access to the PoE settings is necessary, because both
+    the CLI and the daemon have write-through access to the PoE system.
+    """
 
-    # Get platform model name from boot cmd
-    def platform_model(self, file_path=bootcmd_path):
+    def __init__(self) -> None:
+        self._log: PoeLog = PoeLog()
+
         try:
-            with open(file_path, 'r') as f:
-                d = dict(i.split('=') for i in f.read().split(' '))
-                return d.get("onl_platform").rstrip()
-        except Exception as e:
-            print_stderr("Failed to get model name from %s. err: %s" % (bootcmd_path, str(e)))
-            return "Unknown"
+            self._channel = grpc.insecure_channel(AgentConstants.POED_GRPC_SERVER_ADDRESS)
+            self._stub = poed_ipc_pb2_grpc.PoeIpcStub(self._channel)
+        except Exception as ex:
+            self._log.exc(f"Failed to connect to gRPC server: {str(ex)}")
 
-    def platform_src_path(self):
+        self._bt_support = int(self.request_data_from_poed(json.dumps([AgentConstants.POECLI_GET_BT_SUPPORT])))
+        self._port_count = int(self.request_data_from_poed(json.dumps([AgentConstants.POECLI_GET_PORT_COUNT])))
+
+        self._parser: ArgumentParser = ArgumentParser(description="Query or change the PoE settings", prog="poecli")
+        self.__build_parser()
+
+    def request_data_from_poed(self, poecli_request: str):
+        """Sends poecli request to poed gRPC server and receives the response from poed
+
+        Args:
+            poecli_request (str): User string input
+        Returns:
+            str : The response string returned by poed as a response
+        """
+        if not self.__is_poed_alive():
+            raise RuntimeError("poed daemon not running. Not sending the IPC command")
+
         try:
-            # dentOS platform format: <arch>-<manufacturer>-<model>-<revision>
-            [arch, manufacturer, model_revision] = self.platform_model().split('-', 2)
-            return "/".join([plat_root_path, manufacturer,
-                             model_revision, "poe_platform.py"])
-        except Exception as e:
-            print_stderr("Failed to get platform path. err: %s" % str(e))
+            poecli_request = poed_ipc_pb2.PoecliRequest(request=poecli_request)
+            poed_reply = self._stub.HandlePoecli(poecli_request)
+            self._log.dbg(f"Sent poed IPC command: {poecli_request}")
+            return poed_reply.reply
+        except Exception as ex:
+            self._log.exc(f"Failed to connect to gRPC server: {str(ex)}")
+            raise
 
-    def load_poe_platform(self):
-        plat_src = imp.load_source("poe_plat", self.platform_src_path())
-        poe_plat = plat_src.get_poe_platform()
-        return poe_plat
+    def __parse_port_input(self, user_input: str) -> list[int] | NoReturn:
+        """Validate the user port input by matching either a port range
+        or a single port index
 
-    def valid_ports(self, data):
-        portList = []
-        total_poe_port = self.poe_plat.total_poe_port()
+        Args:
+            user_input (str): User string input
+
+        Raises:
+            argparse.ArgumentTypeError: Raised if the user input is invalid
+
+        Returns:
+            list[int] | NoReturn: The list of ports, if successful
+        """
+        ports = []
+        port_range_regex = "^[1-9][0-9]?-[1-9][0-9]?$"
+        single_port_regex = "^[1-9][0-9]?$"
+        port_count = self._port_count
         try:
-            targets = data.split(',')
-            re1 = re.compile(PORTLIST_VALIDATION1)
-            re2 = re.compile(PORTLIST_VALIDATION2)
-            for ports in targets:
-                if re1.match(ports):
-                    [start, end] = ports.split('-')
-                    start = int(start, 0) - 1
-                    end = int(end, 0) - 1
-                    if end < start:
+            targets = user_input.split(",")
+            for target in targets:
+                if re.match(port_range_regex, target):
+                    start, end = target.split("-")
+                    start = int(start)
+                    end = int(end)
+                    if end < start:  # Got them reversed.
                         start, end = end, start
-                    if start < 0 or end >= total_poe_port:
+                    if end > port_count:
                         raise ValueError
-                    portList += list(range(start, end + 1))
-                elif re2.match(ports):
-                    port = int(ports, 0) - 1
-                    if port < 0 or port >= total_poe_port:
+                    # Zero-based values for the driver facing API.
+                    ports += list(range(start - 1, (end - 1) + 1))
+                elif re.match(single_port_regex, target):
+                    port = int(target)
+                    if port > port_count:
                         raise ValueError
-                    portList.append(port)
+                    # Zero-based values for the driver facing API.
+                    ports.append(port - 1)
                 else:
                     raise ValueError
-            portList = sorted(set(portList))
-            return portList
+            ports = sorted(set(ports))
+            return ports
         except ValueError:
-            error = "Invalid port inputs: '{0}'.".format(data)
-            raise argparse.ArgumentTypeError(error)
+            raise argparse.ArgumentTypeError(f"Invalid port input: '{user_input}'")
 
-    def valid_powerlimit(self, data):
+    def __parse_user_power_limit(self, user_input: str) -> int | NoReturn:
+        """Validate the user power limit input and convert it to an integer
+
+        Args:
+            user_input (str): User string input
+
+        Raises:
+            argparse.ArgumentTypeError: Raised if the user input is invalid
+
+        Returns:
+            int | NoReturn: The converted value, if successful
+        """
         try:
-            power = int(data, 0)
-            if 0 <= power <= 0xffff:
+            power = int(user_input, 0)
+            if 0 <= power <= 0xFFFF:
                 return power
             else:
                 raise ValueError
         except ValueError:
-            error = "Invalid power limit: '{0}'.".format(data)
-            raise argparse.ArgumentTypeError(error)
+            raise argparse.ArgumentTypeError(f"Invalid power limit input: '{user_input}'")
 
-    def _build_parser(self):
-        root_parser = argparse.ArgumentParser()
-        root_sub_parser = root_parser.add_subparsers(dest="subcmd",
-                                                     help="Descriptions",
-                                                     metavar="Commands")
+    def __build_parser(self) -> None:
+        """Add the subparser and arguments for the main arg parser"""
+        sub_parser = self._parser.add_subparsers(dest="subcmd", help="Description", metavar="Command")
 
-        # Show Sub Command
-        show_parser = root_sub_parser.add_parser("show",
-                                                 help="Show PoE information",
-                                                 formatter_class=argparse.RawTextHelpFormatter)
-        show_parser.add_argument("-d", "--debug", action="store_true",
-                                 help="Show more Information for debugging\n")
-        show_parser.add_argument("-j", "--json", action="store_true",
-                                 help="Display information in JSON format\n")
-        show_group = show_parser.add_mutually_exclusive_group()
-        show_group.add_argument("-p", "--ports", metavar="<val>", type=self.valid_ports,
-                                help="Show PoE Ports Information\n"
-                                "Example: 1,3-5,45-48")
-        show_group.add_argument("-s", "--system", action="store_true",
-                                help="Show PoE System Information")
-        show_group.add_argument("-m", "--mask", action="store_true",
-                                help="Show Individual mask registers")
-        show_group.add_argument("-a", "--all", action="store_true",
-                                help="Show port, system, and individual masks Information")
-        show_group.add_argument("-v", "--version", action="store_true",
-                                help="Show PoE versions\n")
-
-        # Set Sub Command
-        set_parser = root_sub_parser.add_parser("set", help="Set PoE ports",
-                                                formatter_class=argparse.RawTextHelpFormatter)
-        set_parser.add_argument("-p", "--ports", metavar="<val>", required=True, type=self.valid_ports,
-                                help="Logic ports\n"
-                                "Example: 1,3-5,45-48")
-        set_parser.add_argument("-e", "--enable", type=lambda x: int(x, 0), choices=[0, 1],
-                                metavar="<val>",
-                                help="Port Enable/Disable\n"
-                                "disable = 0, enable = 1")
-        set_parser.add_argument("-l", "--level", type=lambda x: int(x, 0), choices=[1, 2, 3],
-                                metavar="<val>",
-                                help="Port Priority Level\n"
-                                "crit = 1, high = 2, low = 3")
-        set_parser.add_argument("-o", "--powerLimit", type=self.valid_powerlimit,
-                                metavar="<val>",
-                                help="Port Power Limit\n"
-                                "range: 0x0 (mW) - 0xffff (mW)\n"
-                                "This field will be ignored if val sets to 0xffff")
-        # Save Sub Command
-        save_parser = root_sub_parser.add_parser("savechip", help=
-            "This command saves the current user values into the non-volatile memory and these user values"
-            "become the defaults after any reset. "
-            "To change the default back to the initial factory values, use the Restore Factory Defaults cmd."
-            "(poecli restore_poe_system). The persistent config won't change until 'poecli cfg --save' issued."
+        # show sub-command
+        show_parser = sub_parser.add_parser("show", help="show PoE system and port information")
+        show_parser.add_argument("-d", "--debug", action="store_true", help="show verbose information")
+        show_parser.add_argument("-j", "--json", action="store_true", help="dump output as JSON")
+        show_exclusive_group = show_parser.add_mutually_exclusive_group(required=True)
+        show_exclusive_group.add_argument(
+            "-p",
+            "--ports",
+            metavar="<e.g. 1,3-5,10-15>",
+            type=self.__parse_port_input,
+            help="show PoE port(s) information",
+        )
+        show_exclusive_group.add_argument("-s", "--system", action="store_true", help="show PoE system information")
+        show_exclusive_group.add_argument(
+            "-m", "--mask", action="store_true", help="show system individual mask registers"
+        )
+        show_exclusive_group.add_argument(
+            "--default-limits", action="store_true", help="show default class power limits"
+        )
+        show_exclusive_group.add_argument(
+            "-a", "--all", action="store_true", help="show port, system, and individual mask registers"
+        )
+        show_exclusive_group.add_argument(
+            "-v", "--version", action="store_true", help="show PoE firmware, agent and config versions"
         )
 
-        # CFG Sub Command
-        cfg_parser = root_sub_parser.add_parser("cfg", help="CFG command, to manipulate the poe agent config files.",
-                                                formatter_class=argparse.RawTextHelpFormatter)
-        cfg_parser.add_argument("-s", "--save", action="store_true",
-                                help="Save current runtime settings to persistent file.\n")
-        cfg_parser.add_argument("-l", "--load", action="store_true",
-                                help="Load settings from persistent file.\n")
-        cfg_parser.add_argument("-c", "--config",
-                                metavar="<val>",
-                                help="Assign file path for save/load operation,\n"
-                                "instead of persistent config, Example:\n"
-                                "poecli cfg -s -c [Config Path]")
+        # set sub-command
+        set_parser = sub_parser.add_parser("set", help="change PoE configuration")
+        port_group = set_parser.add_argument_group("port settings")
+        port_group.add_argument(
+            "-p", "--ports", metavar="<e.g. 1,3-5,10-15>", type=self.__parse_port_input, help="port index/indices"
+        )
+        port_group.add_argument(
+            "-e", "--enable", type=int, choices=[0, 1], metavar="<e.g. 1 or 0>", help="port enable/disable"
+        )
+        port_group.add_argument(
+            "-l",
+            "--level",
+            type=int,
+            choices=[1, 2, 3],
+            metavar="<e.g. 1 or 2 or 3>",
+            help="port priority (critical = 1, high = 2, low = 3",
+        )
+        port_group.add_argument(
+            "-o",
+            "--power-limit",
+            type=self.__parse_user_power_limit,
+            metavar="<e.g. 20000 or 0x4e20>",
+            help="port power limit (in mW)",
+        )
+        port_group.add_argument(
+            "--lldp", type=int, choices=[0, 1], metavar="<e.g. 1 or 0>", help="lldp processing enable/disable"
+        )
+        limits_group = set_parser.add_argument_group("power limit settings")
+        limits_group.add_argument(
+            "--default-limit",
+            nargs=2,
+            type=int,
+            metavar=("<e.g. 4 (class)>", "<e.g. 14 (0 means disable limit)>"),
+            help="set the default class power limit (power class, watts)",
+        )
 
-        # Restore Sub Command
-        restore_parser = root_sub_parser.add_parser("restore_poe_system", help=
-                        "This command restores modified values to POE chip factory default values \n"
-                        "that are part of the firmware release version."
-                        "Ports will shut down after sending this command."
-                        "After restore factory default, it will initialize the port setting for the platform."
-                        "The persistent config won't change until 'poecli cfg --save' issued.\n"
-                        )
-        # CFG Sub Command
-        guide_parser = root_sub_parser.add_parser("guide", help="Show user guide",
-                                                formatter_class=argparse.RawTextHelpFormatter)
+        # flush sub-command
+        sub_parser.add_parser(
+            "flush",
+            help="flush the current PoE configuration to the chipset "
+            "non-volatile memory. Thus, these settings will become defaults "
+            "after subsequent resets. To change the settings back to factory "
+            "defaults, use the factory-reset poecli command",
+        )
 
-        return root_parser
+        # factory-reset sub-command
+        sub_parser.add_parser(
+            "factory-reset",
+            help="restore the PoE chipset to factory default state. "
+            "Ports will shut down after sending this command. ",
+        )
 
-    def json_output(self, data):
-        print(json.dumps(data, indent = 4))
+        # config sub-command
+        cfg_parser = sub_parser.add_parser(
+            "config", help="either save the current config or load the config " "to/from a file"
+        )
+        config_exclusive_group = cfg_parser.add_mutually_exclusive_group(required=True)
+        config_exclusive_group.add_argument(
+            "-s", "--save", action="store_true", help="save persisted runtime config to a file"
+        )
+        config_exclusive_group.add_argument(
+            "-l", "--load", action="store_true", help="load and apply config from a file"
+        )
+        cfg_parser.add_argument(
+            "-c",
+            "--config-file",
+            metavar="<path>",
+            help="file used for the save/load command (by default the " "permanent config file is used)",
+        )
 
-    def get_versions(self):
-        data = collections.OrderedDict()
-        data[SW_VERSION] = self.poe_plat.get_poe_versions()
-        data[POE_AGT_VER] = POE_AGENT_VERSION
-        data[POE_CFG_VER] = POE_CONFIG_VERSION
-        return data
+    def __get_version_info(self) -> OrderedDict:
+        """Get the firmware, agent and config versions
 
-    def get_system_running_state(self):
-        return self.poe_plat.get_system_information()
+        Returns:
+            OrderedDict: Version information
+        """
+        poed_request = json.dumps([AgentConstants.POECLI_SHOW_CMD, AgentConstants.POECLI_GET_VERSIONS_INFO_CMD])
+        poed_reply = self.request_data_from_poed(poed_request)
+        version_info = json.loads(poed_reply)
+        return version_info
 
-    def get_ports_running_state(self, portList):
-        return self.poe_plat.get_ports_information(portList)
+    def __get_system_info(self) -> OrderedDict:
+        """Get verbose system info
 
-    def get_individual_masks(self):
-        data = collections.OrderedDict()
-        masks = list(range(0x54))
-        for mask in masks:
-            val = self.poe_plat.get_individual_mask(mask).get(ENDIS)
-            key = "0x{:02x}".format(mask)
-            data[key] = val
-        return data
+        Returns:
+            OrderedDict: System info
+        """
+        poed_request = json.dumps([AgentConstants.POECLI_SHOW_CMD, AgentConstants.POECLI_GET_SYSTEM_INFO_CMD])
+        poed_reply = self.request_data_from_poed(poed_request)
+        system_info = json.loads(poed_reply)
+        return system_info
 
-    def print_poe_version(self, versions):
-        print("PoE SW Versions: %s" % versions[SW_VERSION])
-        print("PoE Agent Version: %s" % versions[POE_AGT_VER])
-        print("PoE Config Version: %s" % versions[POE_CFG_VER])
+    def __get_ports_info(self, ports: list[int]) -> list[dict] | NoReturn:
+        """Query the PoE HAL to get verbose ports info
+        The LLDP endis status must be got through poed,
+        as there may be state changes that the CLI is not aware of
+        through the local configuration.
 
-    def print_ports_information(self, ports_info, debug):
-        print("")
-        if debug:
-            print("Port  Status             En/Dis   Priority  Protocol        Class  PWR Consump  PWR Limit    Voltage    Current   Latch  En4Pair")
-            print("----  -----------------  -------  --------  --------------  -----  -----------  -----------  ---------  --------  -----  -------")
+        Args:
+            ports (list[int]): Ports to get info for
+
+        Returns:
+            list[OrderedDict]: Ports info
+        """
+        poed_request = [AgentConstants.POECLI_SHOW_CMD, AgentConstants.POECLI_GET_PORTS_INFO_CMD]
+        poed_request.append(str(len(ports)))
+        # Ports were previously converted to zero-based,
+        # because driver required zero-based indices.
+        poed_request.extend(list(map(lambda p: str(p + 1), ports)))
+        poed_request = json.dumps(poed_request)
+        poed_reply = self.request_data_from_poed(poed_request)
+        return json.loads(poed_reply)
+
+    def __get_default_limits(self) -> OrderedDict:
+        """Query the default power limits from POED
+
+        Returns:
+            list[OrderedDict]: Default power limits info
+        """
+        poed_request = json.dumps([AgentConstants.POECLI_SHOW_CMD, AgentConstants.POECLI_GET_DEFAULT_LIMITS_CMD])
+        poed_reply = self.request_data_from_poed(poed_request)
+        default_power_limits = json.loads(poed_reply)
+        data = OrderedDict()
+        if not default_power_limits:
+            data["N/A"] = "N/A"
         else:
-            print("Port  Status             En/Dis   Priority  Protocol        Class  PWR Consump  PWR Limit    Voltage    Current ")
-            print("----  -----------------  -------  --------  --------------  -----  -----------  -----------  ---------  --------")
-        for info in ports_info:
-            if debug:
-                output = "{:<4d}  {:17s}  {:7s}  {:^8s}  {:14s}  {:^5s}  {:6d} (mW)  {:6d} (mW)  {:5.1f} (V)  {:3d} (mA)  {:5s}  {:4d}".format(
-                         info.get(PORT_ID), info.get(STATUS), info.get(ENDIS),
-                         info.get(PRIORITY), info.get(PROTOCOL), info.get(CLASS),
-                         info.get(POWER_CONSUMP), info.get(POWER_LIMIT), info.get(VOLTAGE),
-                         info.get(CURRENT), "0x{:02x}".format(info.get(LATCH)), info.get(EN_4PAIR))
-            else:
-                output = "{:<4d}  {:17s}  {:7s}  {:^8s}  {:14s}  {:^5s}  {:6d} (mW)  {:6d} (mW)  {:5.1f} (V)  {:3d} (mA)".format(
-                         info.get(PORT_ID), info.get(STATUS), info.get(ENDIS),
-                         info.get(PRIORITY), info.get(PROTOCOL), info.get(CLASS),
-                         info.get(POWER_CONSUMP), info.get(POWER_LIMIT), info.get(VOLTAGE),
-                         info.get(CURRENT))
-            print(output)
+            data = default_power_limits
+        return data
+
+    def __get_system_individual_mask_regs(self) -> OrderedDict:
+        """Get all individual mask registers
+        Refer to the "MASK Registers List" chapter for further info.
+
+        Returns:
+            OrderedDict: Mask values
+        """
+        poed_request = json.dumps([AgentConstants.POECLI_SHOW_CMD, AgentConstants.POECLI_GET_MASK_REGS_CMD])
+        poed_reply = self.request_data_from_poed(poed_request)
+        mask_regs = json.loads(poed_reply)
+        return mask_regs
+
+    def __print_versions(self, versions: OrderedDict) -> None:
+        """Format and display the versions
+
+        Args:
+            versions (OrderedDict): Version dictionary
+        """
+        print("=" * 17)
+        print("PoE Versions Info")
+        print("=" * 17)
+        print(f" PoE firmware version : {versions[SW_VERSION]}")
+        print(f" PoE agent version    : {versions[AgentConstants.POE_AGT_VER]}")
+        print(f" PoE config version   : {versions[AgentConstants.POE_CFG_VER]}")
+
+    def __print_ports_information(self, ports: list[OrderedDict], verbose: bool) -> None:
+        """Format and display port(s) information
+
+        Args:
+            ports (list[OrderedDict]): Collected ports info
+            verbose (bool): Verbose flag
+        """
+        print("")
+        print("=" * 21)
+        print("PoE Ports Information")
+        print("=" * 21)
+
+        # Print the table header first.
+        # Some columns may be hidden, depending on the verbose arg.
+        print(
+            f"{'Port':<4}  {'Status':<17}  {'En/Dis':<7}  {'Priority':<8}  "
+            f"{'Protocol':<14}  {'Class':<5}  {'PWR Consump':<11}  "
+            f"{'PWR Limit':<11}  {'Voltage':<9}  {'Current':<8}  "
+            f"{'LLDP En/Dis':<12}"
+            f"{('  Latch  ') if verbose else ''}"
+            f"{'En4Pair' if verbose else ''}"
+        )
+        print(
+            f"{'-' * 4}  {'-' * 17}  {'-' * 7}  {'-' * 8}  "
+            f"{'-' * 14}  {'-' * 5}  {'-' * 11}  {'-' * 11}  "
+            f"{'-' * 9}  {'-' * 8}  {'-' * 12}"
+            f"{('  ' + '-' * 5) if verbose else ''}"
+            f"{('  ' + '-' * 7) if verbose else ''}"
+        )
+
+        # Print each port info, aligning it to each column header.
+        for port in ports:
+            port_id = port.get(PORT_ID)
+            power_consumption = port.get(POWER_CONSUMP)
+            if power_consumption is None:
+                raise AssertionError(f"Power consumption value for port {port_id} must " "not be None")
+            power_consumption = str(power_consumption) + " (mW)"
+            power_limit = port.get(POWER_LIMIT)
+            if power_limit is None:
+                raise AssertionError(f"Power limit value for port {port_id} must not be None")
+            power_limit = str(power_limit) + " (mW)"
+            voltage = port.get(VOLTAGE)
+            if voltage is None:
+                raise AssertionError(f"Voltage value for port {port_id} must not be None")
+            voltage = f"{voltage:.1f} (V)"
+            current = port.get(CURRENT)
+            if current is None:
+                raise AssertionError(f"Current value for port {port_id} must not be None")
+            current = str(current) + " (mA)"
+            lldp_endis = port.get(AgentConstants.LLDP_ENDIS)
+            if lldp_endis is None:
+                raise AssertionError(f"LLDP endis value for port {port_id} must not be None")
+            latch = port.get(LATCH)
+            if latch is None:
+                raise AssertionError(f"Latch value for port {port_id} must be not be None")
+            latch = f"0x{latch:02x}"
+            latch = f"  {latch:<5s}  " if verbose else ""
+            en_4pair = f"{port.get(EN_4PAIR):^7d}  " if verbose else ""
+            print(
+                f"{port_id:<4d}  "
+                f"{port.get(STATUS):<17s}  "
+                f"{port.get(ENDIS):<7s}  "
+                f"{port.get(PRIORITY):^8s}  "
+                f"{port.get(PROTOCOL):<14s}  "
+                f"{port.get(CLASS):^5s}  "
+                f"{power_consumption:<11s}  {power_limit:<11s}  "
+                f"{voltage:<9s}  {current:<8s}  {lldp_endis:<12s}" + latch + en_4pair
+            )
+
+    def __print_system_information_header(self):
+        print("")
+        print("=" * 22)
+        print("PoE System Information")
+        print("=" * 22)
+
+    def __print_system_information(self, sys_info: list[OrderedDict], verbose: bool) -> None:
+        """Format and display the system power information
+
+        Args:
+            sys_info (List of OrderedDict): Collected system information
+            verbose (bool): Verbose flag
+        """
+        total_ports = 0
+        total_power = 0
+        consumed_power = 0
+
+        for i in range(0, len(sys_info)):
+            total_ports = total_ports + sys_info[i].get(TOTAL_PORTS)
+            total_power = total_power + sys_info[i].get(TOTAL_POWER)
+            consumed_power = consumed_power + sys_info[i].get(POWER_CONSUMP)
+
+        self.__print_system_information_header()
+        print(f" {'Total PoE ports':<18s}: " f"{total_ports}")
+        print(f" {'Total Power':<18s}: " f"{total_power:.1f} W")
+        print(f" {'Total Consumed power':<18s}: " f"{consumed_power:.1f} W")
+
+        for i in range(0, len(sys_info)):
+            self.__print_chip_system_information(sys_info[i], i, verbose, False)
+
+    def __print_chip_system_information(self, sys_info: OrderedDict, index: int, verbose: bool, isheader:bool = False) -> None:
+        """Format and display the system power information
+
+        Args:
+            sys_info (OrderedDict): Collected system information
+            verbose (bool): Verbose flag
+        """
+        if isheader:
+            self.__print_system_information_header()
+        else:
+            print("-" * 22)
+        print(f" {'Chip index':<18s}: " f"{index}")
+        print(f" {'PoE ports':<18s}: " f"{sys_info.get(TOTAL_PORTS)}")
+        print(f" {'Power':<18s}: " f"{sys_info.get(TOTAL_POWER):.1f} W")
+        print(f" {'Consumed power':<18s}: " f"{sys_info.get(POWER_CONSUMP):.1f} W")
+        if CALCULATED_POWER in sys_info:
+            print(f" {'Calculated power':<18s}: " f"{sys_info.get(CALCULATED_POWER):.1f} W")
+        print(f" {'Available power':<18s}: " f"{sys_info.get(POWER_AVAIL):.1f} W")
+        print("")
+        print(f" {'Power bank #':<18s}: " f"{sys_info.get(POWER_BANK)}")
+        print(f" {'Power sources':<18s}: " f"{sys_info.get(POWER_SRC)}")
+        if verbose:
+            print("=" * 26)
+            print("System Status")
+            print("=" * 26)
+            print(f" {'Max Shutdown (V)':<18s}: " f"{sys_info.get(MAX_SD_VOLT)}")
+            print(f" {'Min Shutdown (V)':<18s}: " f"{sys_info.get(MIN_SD_VOLT)}")
+            print("")
+            print(f" {'PM1 (system power)':<18s}: " f"0x{sys_info.get(PM1):02x}")
+            print(f" {'PM2 (PPL)':<18s}: " f"0x{sys_info.get(PM2):02x}")
+            print(f" {'PM3 (startup cond)':<18s}: " f"0x{sys_info.get(PM3):02x}")
+            print("")
+            print(f" {'CPU Status1':<18s}: " f"0x{sys_info.get(CPU_STATUS1):02x}")
+            print(f" {'CPU Status2':<18s}: " f"0x{sys_info.get(CPU_STATUS2):02x}")
+            print(f" {'Factory default':<18s}: " f"0x{sys_info.get(FAC_DEFAULT):02x}")
+            print(f" {'General error':<18s}: " f"0x{sys_info.get(GIE):02x}")
+            print(f" {'Private label':<18s}: " f"0x{sys_info.get(PRIV_LABEL):02x}")
+            print(f" {'User byte':<18s}: " f"0x{sys_info.get(USER_BYTE):02x}")
+            print(f" {'Device fail':<18s}: " f"0x{sys_info.get(DEVICE_FAIL):02x}")
+            print(f" {'Temp disconnect':<18s}: " f"0x{sys_info.get(TEMP_DISCO):02x}")
+            print(f" {'Temp alarm':<18s}: " f"0x{sys_info.get(TEMP_ALARM):02x}")
+            print(f" {'Interrupt reg':<18s}: " f"0x{sys_info.get(INTR_REG):02x}")
+
+    def __print_default_limits(self, default_power_limits: OrderedDict) -> None:
+        """Formats and Print default power limits
+
+        Args:
+            default_power_limits (OrderedDict): Collected default power limits
+        """
+        print("")
+        print("=" * 20)
+        print("Default power limits")
+        print("=" * 20)
+
+        for key, value in default_power_limits.items():
+            print(f" Class {key}: {value}(W)")
+
+    def __print_mask_registers(self, masks: OrderedDict) -> None:
+        """Print individual mask registers
+
+        Args:
+            masks (OrderedDict): Collected mask registers
+        """
+        print("")
+        print("=" * 21)
+        print("System mask registers")
+        print("=" * 21)
         print("")
 
-    def print_system_information(self, system_info, debug):
-        print("")
-        print("==============================")
-        print(" PoE System Information")
-        print("==============================")
-        print(" Total PoE Ports   : %d" % system_info.get(TOTAL_PORTS))
-        print("")
-        print(" Total Power       : %.1f W" % system_info.get(TOTAL_POWER))
-        print(" Power Consumption : %.1f W" % system_info.get(POWER_CONSUMP))
-        print(" Power Avaliable   : %.1f W" % system_info.get(POWER_AVAIL))
-        print("")
-        print(" Power Bank #      : %d" % system_info.get(POWER_BANK))
-        print(" Power Sources     : %s" % system_info.get(POWER_SRC))
-        print("")
-        if debug:
-            print(" Max Shutdown Volt : %.1f V" % system_info.get(MAX_SD_VOLT))
-            print(" Min Shutdown Volt : %.1f V" % system_info.get(MIN_SD_VOLT))
-            print("")
-            print(" PM1               : 0x%02x" % system_info.get(PM1))
-            print(" PM2               : 0x%02x" % system_info.get(PM2))
-            print(" PM3               : 0x%02x" % system_info.get(PM3))
-            print("")
-            print(" CPU Status1       : 0x%02x" % system_info.get(CPU_STATUS1))
-            print(" CPU Status2       : 0x%02x" % system_info.get(CPU_STATUS2))
-            print(" FAC Default       : %d"     % system_info.get(FAC_DEFAULT))
-            print(" General Intl Err  : 0x%02x" % system_info.get(GIE))
-            print(" Private Label     : 0x%02x" % system_info.get(PRIV_LABEL))
-            print(" User Byte         : 0x%02x" % system_info.get(USER_BYTE))
-            print(" Device Fail       : 0x%02x" % system_info.get(DEVICE_FAIL))
-            print(" Temp Disconnect   : 0x%02x" % system_info.get(TEMP_DISCO))
-            print(" Temp Alarm        : 0x%02x" % system_info.get(TEMP_ALARM))
-            print(" Interrupt Reg     : 0x%04x" % system_info.get(INTR_REG))
-            print("")
+        print(f"{'-' *124}")
+        length = len(masks)
+        keys = []
+        values = []
 
-    def print_indv_masks(self, masks):
-        print("")
-        print("==================")
-        print(" Individual Masks")
-        print("==================")
         for key in masks:
-            print(" {:s}:{:2d}".format(key, masks[key]))
-        print("")
+            keys.append(key)
+            values.append(masks[key])
 
-    @PoeAccessExclusiveLock
-    def show_versions(self, json):
+        index = 0
+        rows_num = length // 16 + 1 if length % 16 else length // 16
+
+        for _ in range(rows_num):
+            register_row = "| Register |"
+            mask_row = "| Mask     |"
+            for _ in range(0, 16):
+                if index < length:
+                    register_row += " " + keys[index] + " |"
+                    mask_row += "  " + str(values[index])
+                    for _ in range(6 - len(str(values[index])) - 2):
+                        mask_row += " "
+                    mask_row += "|"
+                else:
+                    register_row += "      |"
+                    mask_row += "      |"
+                index += 1
+            print(register_row)
+            print(f"{'-' *124}")
+            print(mask_row)
+            print(f"{'-' *124}")
+
+    def __show_versions(self, json_flag: bool) -> None:
+        """Print the software versions
+
+        Args:
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            data = collections.OrderedDict()
-            data[VERSIONS] = self.get_versions()
-            if json:
-                self.json_output(data)
+            data = OrderedDict()
+            data[AgentConstants.VERSIONS] = self.__get_version_info()
+            if json_flag:
+                print(json.dumps(data, indent=4))
             else:
-                self.print_poe_version(data[VERSIONS])
+                self.__print_versions(data[AgentConstants.VERSIONS])
         except Exception as e:
-            print_stderr("Failed to show poe versions! (%s)" % str(e))
+            self._log.exc(f"Failed to print the software versions: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def show_system_information(self, debug, json):
+    def __show_system_information(self, debug_flag: bool, json_flag: bool) -> None:
+        """Print the system information
+
+        Args:
+            debug_flag (bool): Verbose output flag
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            data = collections.OrderedDict()
-            data[SYS_INFO] = self.get_system_running_state()
-            if json:
-                self.json_output(data)
+            data = OrderedDict()
+            data[AgentConstants.SYS_INFO] = self.__get_system_info()
+            if json_flag:
+                print(json.dumps(data, indent=4))
             else:
-                self.print_system_information(data[SYS_INFO], debug)
+                if type(data[AgentConstants.SYS_INFO]) is list:
+                    self.__print_system_information(data[AgentConstants.SYS_INFO], debug_flag)
+                else:
+                    self.__print_chip_system_information(data[AgentConstants.SYS_INFO], 0, debug_flag, True)
         except Exception as e:
-            print_stderr(
-                "Failed to show poe system information! (%s)" % str(e))
+            self._log.exc(f"Failed to print the system information: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def show_ports_information(self, portList, debug, json):
+    def __show_ports_information(self, ports: list[int], debug_flag: bool, json_flag: bool) -> None:
+        """Print info for the given ports
+
+        Args:
+            ports (list[int]): Ports to query for
+            debug_flag (bool): Verbose output flag
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            data = collections.OrderedDict()
-            data[PORT_INFO] = self.get_ports_running_state(portList)
-            if json:
-                self.json_output(data)
+            data = OrderedDict()
+            data[AgentConstants.PORT_INFO] = self.__get_ports_info(ports)
+            if json_flag:
+                print(json.dumps(data, indent=4))
             else:
-                self.print_ports_information(data[PORT_INFO], debug)
+                self.__print_ports_information(data[AgentConstants.PORT_INFO], debug_flag)
         except Exception as e:
-            print_stderr(
-                "Failed to show poe ports information! (%s)" % str(e))
+            self._log.exc(f"Failed to print the ports information: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def show_individual_masks(self, json):
+    def __show_individual_mask_regs(self, json_flag: bool) -> None:
+        """Print the individual mask registers
+
+        Args:
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            data = collections.OrderedDict()
-            data[INDV_MASKS] = self.get_individual_masks()
-            if json:
-                self.json_output(data)
+            data = OrderedDict()
+            data[AgentConstants.REG_MASKS] = self.__get_system_individual_mask_regs()
+            if json_flag:
+                print(json.dumps(data, indent=4))
             else:
-                self.print_indv_masks(data[INDV_MASKS])
+                self.__print_mask_registers(data[AgentConstants.REG_MASKS])
         except Exception as e:
-            print_stderr("Failed to show individual masks! (%s)" % str(e))
+            self._log.exc(f"Failed to print the individual registers: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def show_all_information(self, debug, json):
+    def __show_default_power_limits(self, json_flag: bool) -> None | NoReturn:
+        """Print the default class power limits
+
+        Args:
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            portList = list(range(self.poe_plat.total_poe_port()))
-            data = collections.OrderedDict()
-            data[VERSIONS] = self.get_versions()
-            data[SYS_INFO] = self.get_system_running_state()
-            data[PORT_INFO] = self.get_ports_running_state(portList)
-            data[INDV_MASKS] = self.get_individual_masks()
-            if json:
-                self.json_output(data)
+            data = OrderedDict()
+            data[AgentConstants.DEFAULT_LIMITS] = self.__get_default_limits()
+            if json_flag:
+                print(json.dumps(data, indent=4))
             else:
-                self.print_poe_version(data[VERSIONS])
-                self.print_system_information(data[SYS_INFO], debug)
-                self.print_ports_information(data[PORT_INFO], debug)
-                self.print_indv_masks(data[INDV_MASKS])
+                self.__print_default_limits(data[AgentConstants.DEFAULT_LIMITS])
         except Exception as e:
-            print_stderr("Failed to show all information! (%s)" % str(e))
+            self._log.exc(f"Failed to print the default power limits: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def set_ports_enDis(self, portList, val):
+    def __show_all_information(self, debug_flag: bool, json_flag: bool) -> None:
+        """Print all information regarding versions, system, ports
+        and mask registers
+
+        Args:
+            debug_flag (bool): Verbose output flag
+            json_flag (bool): Dump as JSON flag
+        """
         try:
-            for port_id in portList:
-                poe_port = self.poe_plat.get_poe_port(port_id)
-                poe_port.set_enDis(val)
-            return True
+            port_count = self._port_count
+            ports = list(range(port_count))
+            if json_flag:
+                data = OrderedDict()
+                data[AgentConstants.VERSIONS] = self.__get_version_info()
+                data[AgentConstants.SYS_INFO] = self.__get_system_info()
+                data[AgentConstants.PORT_INFO] = self.__get_ports_info(ports)
+                data[AgentConstants.DEFAULT_LIMITS] = self.__get_default_limits()
+                data[AgentConstants.REG_MASKS] = self.__get_system_individual_mask_regs()
+                print(json.dumps(data, indent=4))
+            else:
+                self.__show_versions(False)
+                self.__show_system_information(debug_flag, False)
+                self.__show_ports_information(ports, debug_flag, False)
+                self.__show_default_power_limits(False)
+                self.__show_individual_mask_regs(False)
         except Exception as e:
-            print_stderr(
-                "Failed to set ports enable/disable! (%s)" % str(e))
-        return False
+            self._log.exc(f"Failed to print all PoE information: {str(e)}")
 
-    @PoeAccessExclusiveLock
-    def set_ports_powerLimit(self, portList, val):
+    def __is_poed_alive(self) -> bool:
+        """Determine whether the PoE agent is still alive
+        through the PID file
+
+        Returns:
+            bool: True if still alive, False otherwise
+        """
         try:
-            for port_id in portList:
-                poe_port = self.poe_plat.get_poe_port(port_id)
-                poe_port.set_powerLimit(val)
-            return True
-        except Exception as e:
-            print_stderr("Failed to set ports power limit! (%s)" % str(e))
-        return False
-
-    @PoeAccessExclusiveLock
-    def set_ports_priority(self, portList, val):
-        try:
-            for port_id in portList:
-                poe_port = self.poe_plat.get_poe_port(port_id)
-                poe_port.set_priority(val)
-            return True
-        except Exception as e:
-            print_stderr("Failed to set ports priority! (%s)" % str(e))
-        return False
-
-    @PoeAccessExclusiveLock
-    def save_system_settings(self):
-        try:
-            self.poe_plat.save_system_settings()
-        except Exception as e:
-            print_stderr(
-                "Failed to save poe system settings! (%s)" % str(e))
-
-    @PoeAccessExclusiveLock
-    def restore_factory_default(self):
-        try:
-            self.poe_plat.restore_factory_default()
-            self.poe_plat.init_poe()
-            print("Success to restore factory default and take platform poe settings!")
-        except Exception as e:
-            print_stderr(
-                "Failed to restore factory default! (%s)" % str(e))
-
-    def get_current_time(self):
-        return datetime.now().strftime(self.TIME_FMT)
-
-    def is_poed_alive(self):
-        try:
-            pid = int(open(POED_PID_PATH, 'r').read())
+            pid = int(open(AgentConstants.POED_PID_PATH, "r").read())
             os.kill(pid, 0)
         except OSError:
             return False
+
+        return True
+
+    def __log_current_command(self) -> None:
+        """Log the current user command, TTY, working directory and user"""
+        if sys.stdin.isatty():
+            tty = os.ttyname(sys.stdin.fileno())
         else:
-            return True
+            tty = "unknown"
+        current_dir = os.getcwd()
+        user = getpass.getuser()
+        command = " ".join(sys.argv)
 
-    def send_ipc_event(self, action=POECLI_SET):
-        try:
-            with open(POE_IPC_EVT, "w") as f:
-                f.write(action)
-        except Exception as e:
-            pass
+        self._log.dbg(f"Command executed: TTY={tty}; WD={current_dir}; " f"USER={user}; COMMAND={command}")
 
-def main(argv):
+    def __set_handle_config_args(self, args, action_args):
+        action_args.append(AgentConstants.POECLI_CFG_CMD)
+        if args.save:
+            action_args.append(AgentConstants.POECLI_SAVE_CMD)
+        elif args.load:
+            action_args.append(AgentConstants.POECLI_LOAD_CMD)
+
+        # Append the config file path, if given.
+        if args.config_file is not None:
+            action_args.append(args.config_file)
+
+    def __set_default_limit_args(self, args, action_args):
+        """Change the default power limit by adding the class
+        and its limit to the action args to be processed by poed
+
+        Args:
+            args (list): user Input list
+            action_args (list): IPC arguments list
+        """
+        action_args.append(AgentConstants.POECLI_SET_DEFAULT_LIMIT_CMD)
+        action_args.append(args.default_limit[0])
+        action_args.append(args.default_limit[1])
+
+    def execute(self) -> None | NoReturn:
+        """Run the main logic for executing a user command"""
+
+        class CmdAction(Enum):
+            SHOW_PORT_CONFIG = 1
+            SET_PORT_CONFIG = 2
+            SET_LLDP_ENDIS = 3
+            SET_DEFAULT_LIMIT = 4
+            SET_CONFIG = 5
+
+        args = self._parser.parse_args()
+        self.__log_current_command()
+        action_args = []
+        if args.subcmd == "show":
+            debug_flag: bool = args.debug
+            json_flag: bool = args.json
+            if args.ports:
+                self.__show_ports_information(args.ports, debug_flag, json_flag)
+            elif args.system:
+                self.__show_system_information(debug_flag, json_flag)
+            elif args.mask:
+                self.__show_individual_mask_regs(json_flag)
+            elif args.default_limits:
+                self.__show_default_power_limits(json_flag)
+            elif args.all:
+                self.__show_all_information(debug_flag, json_flag)
+            elif args.version:
+                self.__show_versions(json_flag)
+        elif args.subcmd == "set":
+            action_args.append(AgentConstants.POECLI_SET_CMD)
+            if args.ports is not None and args.default_limit is not None:
+                self._parser.error("Must not change port configuration and default power " "limits at the same time")
+            if args.ports:
+                if args.enable is None and args.level is None and args.power_limit is None and args.lldp is None:
+                    self._parser.error(f"No action requested for {args.subcmd} command")
+
+                action_details = OrderedDict()
+                # ports are zero-based indices here
+                ports_detail = [str(len(args.ports))]
+                ports_detail.extend(list(map(lambda p: str(p), args.ports)))
+                action_details["ports_detail"] = ports_detail
+                if args.enable is not None:
+                    action_details[AgentConstants.POECLI_SET_PORT_ENDIS_CMD] = args.enable
+                if args.level is not None:
+                    action_details[AgentConstants.POECLI_SET_PORT_PRIORITY_CMD] = args.level
+                if args.power_limit is not None:
+                    action_details[AgentConstants.POECLI_SET_PORT_POWER_LIMIT_CMD] = args.power_limit
+                if args.lldp is not None:
+                    action_details[AgentConstants.POECLI_SET_LLDP_ENDIS_CMD] = (
+                        AgentConstants.ENABLE if args.lldp else AgentConstants.DISABLE
+                    )
+                action_args.append(action_details)
+            elif args.default_limit:
+                # 60W is the maximum power limit for a Type 3 PSE.
+                # Supported PoE classes range from 1 to 4 (802.3af and at)
+                # and from 1 to 6 (802.3bt).
+                power_class, power_limit = (args.default_limit[0], args.default_limit[1])
+                if self.bt_support and (args.default_limit[0] > 6 or args.default_limit[1] > 60):
+                    self._parser.error("Invalid power class or value")
+                elif not self.bt_support and (args.default_limit[0] > 4 or args.default_limit[1] > 30):
+                    self._parser.error("Invalid power class or value")
+
+                self.__set_default_limit_args(args, action_args)
+        elif args.subcmd == "flush":
+            action_args.append(AgentConstants.POECLI_FLUSH_CMD)
+        elif args.subcmd == "factory-reset":
+            action_args.append(AgentConstants.POECLI_FACTORY_RESET_CMD)
+        elif args.subcmd == "config":
+            self.__set_handle_config_args(args, action_args)
+
+        # Notify poed of the set operation, if the command went
+        # through.
+        if args.subcmd != "show":
+            poecli_request = json.dumps(action_args)
+            try:
+                reply = self.request_data_from_poed(poecli_request)
+                if reply == "success":
+                    print("command excecuted successfully")
+            except Exception as e:
+                print(f"Command failed with exception: {e}")
+
+
+def main() -> None:
     try:
-        poecli = PoeCLI()
+        cli = PoeCLI()
+        cli.execute()
     except Exception as e:
-        print_stderr("Failed to load poe platform! (%s)" % str(e))
-        os._exit(-9)
+        print(f"PoeCLI failed with exception: {e}")
 
-    if wait_poed_busy() == False:
-        # POED is busy within 5s, BusyID=248
-        os._exit(-8)
-
-    parser = poecli._build_parser()
-    args = parser.parse_args()
-    cfg_action=""
-    set_flag = False
-    poed_alive = poecli.is_poed_alive()
-    if args.subcmd == "show":
-        if (args.ports is None and args.system is False and \
-            args.all is False and args.mask is False and args.version is False):
-            parser.error("No action requested for %s command" % args.subcmd)
-
-        debug_flag = args.debug
-        json_flag = args.json
-        if args.ports:
-            poecli.show_ports_information(args.ports, debug_flag, json_flag)
-        elif args.system:
-            poecli.show_system_information(debug_flag, json_flag)
-        elif args.mask:
-            poecli.show_individual_masks(json_flag)
-        elif args.all:
-            poecli.show_all_information(debug_flag, json_flag)
-        elif args.version:
-            poecli.show_versions(json_flag)
-    elif args.subcmd == "set":
-        if (args.enable is None and args.level is None and args.powerLimit is None):
-            parser.error("No action requested for %s command" % args.subcmd)
-        if args.enable is not None:
-            set_flag |= poecli.set_ports_enDis(args.ports, args.enable)
-        if args.level is not None:
-            set_flag |= poecli.set_ports_priority(args.ports, args.level)
-        if args.powerLimit is not None:
-            set_flag |= poecli.set_ports_powerLimit(args.ports, args.powerLimit)
-
-    elif args.subcmd == "guide":
-        try:
-            with open(POE_USERGUIDE,'r') as f:
-                print_stderr(f.read())
-        except Exception as e:
-            print_stderr("Unadle to open "+POE_USERGUIDE)
-    elif args.subcmd == "savechip":
-        poecli.save_system_settings()
-        set_flag = True
-    elif args.subcmd == "restore_poe_system":
-        poecli.restore_factory_default()
-    elif args.subcmd == "cfg":
-        if poed_alive:
-            cfg_action += POECLI_CFG+","
-            if args.save:
-                cfg_action += POED_SAVE_ACTION+","
-                if args.config is not None:
-                    cfg_action += args.config+","
-            elif args.load:
-                cfg_action += POED_LOAD_ACTION+","
-                if args.config is not None:
-                    cfg_action += args.config+","
-            cfg_action = "".join(cfg_action.rsplit(",", 1))
-            print("cfg_action: {0}".format(cfg_action))
-        else:
-            print("Poe Agent not started, cfg operation will be ignore.")
-
-    if set_flag == True and poed_alive == True:
-        poecli.send_ipc_event()
-    elif len(cfg_action)>0 and poed_alive == True:
-        poecli.send_ipc_event(cfg_action)
-
-if __name__ == '__main__':
-    main(sys.argv)
-
+if __name__ == "__main__":
+    main()
